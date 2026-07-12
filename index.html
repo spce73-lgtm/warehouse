@@ -152,8 +152,7 @@
 
     <div class="server-field">
       <label style="display:block;font-size:12.5px;font-weight:700;color:#5a6472;margin-bottom:6px;">آدرس سامانه (فقط بار اول)</label>
-      <input type="text" id="serverUrlInput" dir="ltr" style="text-align:left;" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="https://script.google.com/macros/s/XXXXX/exec">
-      <small id="urlHint" style="display:none;color:#c53030;"></small>
+      <input type="text" id="serverUrlInput" placeholder="https://script.google.com/macros/s/XXXXX/exec">
       <small>این آدرس همان لینک وب‌اپ گوگل‌شیت شماست؛ یک‌بار وارد کنید، ذخیره می‌شود.</small>
     </div>
 
@@ -175,7 +174,7 @@
     <button class="icon-btn" onclick="doLogout()" title="خروج">
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
     </button>
-    <div class="who" id="whoLabel">—<span id="whoSub"></span></div>
+    <div class="who"><span id="whoLabel">—</span><span id="whoSub"></span></div>
     <button class="icon-btn" id="torchBtn" onclick="toggleTorch()" title="چراغ قوه" style="display:none;">
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 18h6M10 22h4M12 2a6 6 0 0 0-4 10.5c.6.6 1 1.5 1 2.5h6c0-1 .4-1.9 1-2.5A6 6 0 0 0 12 2z"/></svg>
     </button>
