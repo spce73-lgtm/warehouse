@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>اسکنر انبارگردانی</title>
+
+<!-- نصب روی صفحه‌ی اصلی گوشی (Android: نصب واقعی با مانیفست / iOS: Add to Home Screen) -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0f4c81">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="اسکنر انبار">
+<link rel="apple-touch-icon" href="icon-192.png">
+
+<style>
+  :root{
+    --accent:#0f4c81;
+    --accent-dark:#0b3a63;
+    --ok:#1a7f37;
+    --bad:#c53030;
+    --warn:#a15c00;
+    --bg:#f5f6f8;
+    --card:#ffffff;
+    --border:#e5e8eb;
+    --text:#1c1f24;
+    --muted:#8b94a0;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;margin:0;}
+  body{
+    font-family:Tahoma,"Segoe UI",sans-serif;
+    background:var(--bg);
+    color:var(--text);
+    overscroll-behavior:none;
+    padding-top:env(safe-area-inset-top);
+    padding-bottom:env(safe-area-inset-bottom);
+  }
+  .screen{display:none;min-height:100vh;flex-direction:column;}
+  .screen.active{display:flex;}
+
+  /* ---------- صفحه‌ی ورود ---------- */
+  #loginScreen{align-items:center;justify-content:center;padding:24px;background:linear-gradient(160deg,var(--accent),var(--accent-dark));}
+  .login-box{background:var(--card);border-radius:20px;padding:28px 22px;width:100%;max-width:360px;box-shadow:0 20px 50px rgba(0,0,0,.25);}
+  .login-logo{width:56px;height:56px;border-radius:16px;background:var(--accent);display:flex;align-items:center;justify-content:center;margin:0 auto 14px;color:#fff;}
+  .login-title{text-align:center;font-size:17px;font-weight:800;margin-bottom:4px;}
+  .login-sub{text-align:center;font-size:12.5px;color:var(--muted);margin-bottom:20px;}
+  .field{margin-bottom:14px;}
+  .field label{display:block;font-size:12.5px;font-weight:700;color:#5a6472;margin-bottom:6px;}
+  .field input{width:100%;padding:13px 14px;border:1.5px solid var(--border);border-radius:12px;font-size:15px;font-family:inherit;background:#fafbfc;}
+  .field input:focus{outline:none;border-color:var(--accent);background:#fff;}
+  .btn{
+    width:100%;padding:14px;border:none;border-radius:12px;font-size:15px;font-weight:800;
+    cursor:pointer;font-family:inherit;
+  }
+  .btn-primary{background:var(--accent);color:#fff;}
+  .btn-primary:active{background:var(--accent-dark);}
+  .btn-secondary{background:#eef0f2;color:#3f4750;}
+  .msg{border-radius:10px;padding:10px 12px;font-size:12.5px;margin-bottom:14px;text-align:center;}
+  .msg.err{background:#fdeeee;color:var(--bad);}
+  .msg.ok{background:#e6f7ec;color:var(--ok);}
+  .server-field{margin-bottom:16px;}
+  .server-field small{display:block;color:var(--muted);font-size:11px;margin-top:5px;line-height:1.6;}
+
+  /* ---------- صفحه‌ی اصلی اسکن ---------- */
+  #scanScreen{background:#000;}
+  .top-strip{
+    display:flex;align-items:center;justify-content:space-between;gap:8px;
+    padding:10px 14px;background:rgba(0,0,0,.55);position:relative;z-index:5;
+  }
+  .top-strip .who{color:#fff;font-size:12px;font-weight:700;}
+  .top-strip .who span{display:block;color:#c7ccd3;font-size:10.5px;font-weight:400;}
+  .icon-btn{
+    width:36px;height:36px;border-radius:10px;background:rgba(255,255,255,.12);border:none;
+    color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;
+  }
+  #cameraWrap{position:relative;flex:1;overflow:hidden;background:#000;min-height:280px;}
+  #qrReader{width:100%;height:100%;}
+  #qrReader video{width:100%!important;height:100%!important;object-fit:cover;}
+  .scan-frame{
+    position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+    width:min(78vw,320px);height:min(45vw,180px);
+    border:3px solid rgba(255,255,255,.85);border-radius:18px;
+    box-shadow:0 0 0 2000px rgba(0,0,0,.35);pointer-events:none;
+  }
+  .scan-frame:before,.scan-frame:after{content:"";position:absolute;width:26px;height:26px;border-color:var(--accent);}
+  .scan-hint{
+    position:absolute;bottom:14%;left:50%;transform:translateX(-50%);
+    color:#fff;font-size:12.5px;background:rgba(0,0,0,.5);padding:7px 16px;border-radius:20px;
+    white-space:nowrap;
+  }
+  .cam-error{
+    position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:14px;padding:26px;text-align:center;color:#fff;background:#111;
+  }
+  .cam-error .ic{width:52px;height:52px;color:#e5484d;}
+  .cam-error h3{font-size:15px;margin:0;}
+  .cam-error p{font-size:12.5px;color:#c7ccd3;line-height:2;margin:0;}
+
+  .bottom-panel{background:var(--card);border-radius:22px 22px 0 0;padding:16px 18px calc(16px + env(safe-area-inset-bottom));box-shadow:0 -8px 30px rgba(0,0,0,.15);}
+  .manual-row{display:flex;gap:8px;margin-bottom:12px;}
+  .manual-row input{flex:1;padding:12px 14px;border:1.5px solid var(--border);border-radius:12px;font-size:14px;font-family:inherit;}
+  .manual-row button{padding:0 18px;border:none;border-radius:12px;background:#eef0f2;color:var(--accent);font-weight:800;font-family:inherit;}
+  .recent-title{font-size:11.5px;color:var(--muted);font-weight:700;margin-bottom:8px;}
+  .recent-list{display:flex;flex-direction:column;gap:6px;max-height:130px;overflow-y:auto;}
+  .recent-item{display:flex;align-items:center;justify-content:space-between;background:#f7f8fa;border-radius:10px;padding:8px 12px;font-size:12px;}
+  .recent-item b{font-weight:700;}
+  .recent-item .diff{font-family:monospace;font-weight:800;font-size:11.5px;}
+  .recent-item .diff.plus{color:var(--ok);}
+  .recent-item .diff.minus{color:var(--bad);}
+  .recent-empty{color:var(--muted);font-size:12px;text-align:center;padding:10px 0;}
+
+  /* ---------- پاپ‌آپ ثبت شمارش ---------- */
+  .modal-overlay{display:none;position:fixed;inset:0;background:rgba(10,12,15,.55);z-index:50;align-items:flex-end;justify-content:center;}
+  .modal-overlay.open{display:flex;}
+  .modal-sheet{background:#fff;width:100%;max-width:480px;border-radius:22px 22px 0 0;padding:20px 20px calc(20px + env(safe-area-inset-bottom));animation:slideUp .18s ease-out;}
+  @keyframes slideUp{from{transform:translateY(30px);opacity:0;}to{transform:translateY(0);opacity:1;}}
+  .modal-item-name{font-size:16px;font-weight:800;}
+  .modal-item-code{font-size:11.5px;color:var(--muted);font-family:monospace;margin-top:2px;margin-bottom:14px;}
+  .sys-qty-badge{display:inline-flex;align-items:center;gap:6px;background:#eef0f2;border-radius:20px;padding:6px 14px;font-size:12.5px;font-weight:700;color:#5a6472;margin-bottom:18px;}
+  .qty-row{display:flex;align-items:center;gap:10px;margin-bottom:16px;}
+  .qty-step{width:52px;height:52px;border-radius:14px;border:none;background:var(--accent);color:#fff;font-size:24px;font-weight:800;flex-shrink:0;cursor:pointer;}
+  .qty-input{flex:1;text-align:center;font-size:26px;font-weight:800;padding:12px;border:1.5px solid var(--border);border-radius:14px;font-family:inherit;}
+  .note-input{width:100%;padding:12px 14px;border:1.5px solid var(--border);border-radius:12px;font-size:13.5px;font-family:inherit;margin-bottom:16px;min-height:56px;resize:vertical;}
+  .modal-actions{display:flex;gap:10px;}
+  .modal-actions .btn-secondary{flex:0 0 90px;}
+  .lookup-loading{display:flex;align-items:center;justify-content:center;padding:30px 0;color:var(--muted);font-size:13px;gap:8px;}
+  .spinner{width:16px;height:16px;border:2.5px solid #dfe3e7;border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  .toast{
+    position:fixed;top:calc(14px + env(safe-area-inset-top));left:50%;transform:translateX(-50%) translateY(-140%);
+    background:#1c1f24;color:#fff;padding:11px 20px;border-radius:12px;font-size:13px;font-weight:700;
+    z-index:80;transition:transform .25s ease;box-shadow:0 8px 24px rgba(0,0,0,.25);white-space:nowrap;
+  }
+  .toast.show{transform:translateX(-50%) translateY(0);}
+  .toast.ok{background:var(--ok);}
+  .toast.err{background:var(--bad);}
+</style>
+</head>
+<body>
+
+<!-- ============ صفحه‌ی ورود ============ -->
+<div class="screen active" id="loginScreen">
+  <div class="login-box">
+    <div class="login-logo">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><line x1="7" y1="12" x2="17" y2="12"/></svg>
+    </div>
+    <div class="login-title">اسکنر انبارگردانی</div>
+    <div class="login-sub">ورود با همان نام کاربری سامانه انبار</div>
+    <div id="loginMsg"></div>
+
+    <div class="server-field">
+      <label style="display:block;font-size:12.5px;font-weight:700;color:#5a6472;margin-bottom:6px;">آدرس سامانه (فقط بار اول)</label>
+      <input type="text" id="serverUrlInput" placeholder="https://script.google.com/macros/s/XXXXX/exec">
+      <small>این آدرس همان لینک وب‌اپ گوگل‌شیت شماست؛ یک‌بار وارد کنید، ذخیره می‌شود.</small>
+    </div>
+
+    <div class="field">
+      <label>نام کاربری</label>
+      <input type="text" id="loginUsername" autocomplete="username">
+    </div>
+    <div class="field">
+      <label>رمز عبور</label>
+      <input type="password" id="loginPassword" autocomplete="current-password">
+    </div>
+    <button class="btn btn-primary" id="loginBtn" onclick="doLogin()">ورود</button>
+  </div>
+</div>
+
+<!-- ============ صفحه‌ی اسکن ============ -->
+<div class="screen" id="scanScreen">
+  <div class="top-strip">
+    <button class="icon-btn" onclick="doLogout()" title="خروج">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+    </button>
+    <div class="who"><span id="whoLabel">—</span><span id="whoSub"></span></div>
+    <button class="icon-btn" id="torchBtn" onclick="toggleTorch()" title="چراغ قوه" style="display:none;">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 18h6M10 22h4M12 2a6 6 0 0 0-4 10.5c.6.6 1 1.5 1 2.5h6c0-1 .4-1.9 1-2.5A6 6 0 0 0 12 2z"/></svg>
+    </button>
+  </div>
+
+  <div id="cameraWrap">
+    <div id="qrReader"></div>
+    <div class="scan-frame" id="scanFrame"></div>
+    <div class="scan-hint">بارکد را داخل کادر بگیرید</div>
+    <div class="cam-error" id="camError" style="display:none;">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M1 1l22 22M9.9 4.24A9.12 9.12 0 0 1 12 4a9.87 9.87 0 0 1 8.42 4.73 10.24 10.24 0 0 1 1.18 3.27 10.16 10.16 0 0 1-1.06 3.03M6.61 6.61A9.9 9.9 0 0 0 2.4 12a9.87 9.87 0 0 0 3.07 4.19"/><path d="M14.12 14.12A3 3 0 0 1 9.88 9.88"/><circle cx="12" cy="12" r="9"/></svg>
+      <h3>دسترسی به دوربین ممکن نشد</h3>
+      <p id="camErrorText">لطفاً از قسمت پایین، کد کالا را دستی وارد کنید یا دوباره تلاش کنید.</p>
+      <button class="btn btn-primary" style="width:auto;padding:11px 24px;" onclick="startScanner()">تلاش دوباره برای دوربین</button>
+    </div>
+  </div>
+
+  <div class="bottom-panel">
+    <div class="manual-row">
+      <input type="text" id="manualCode" placeholder="یا کد کالا را اینجا تایپ کنید..." inputmode="numeric">
+      <button onclick="lookupManual()">جستجو</button>
+    </div>
+    <div class="recent-title">آخرین موارد ثبت‌شده در این جلسه</div>
+    <div class="recent-list" id="recentList"><div class="recent-empty">هنوز چیزی ثبت نشده.</div></div>
+  </div>
+</div>
+
+<!-- ============ پاپ‌آپ ثبت شمارش ============ -->
+<div class="modal-overlay" id="countOverlay">
+  <div class="modal-sheet">
+    <div id="lookupLoading" class="lookup-loading"><div class="spinner"></div> در حال جستجوی کالا...</div>
+    <div id="lookupResult" style="display:none;">
+      <div class="modal-item-name" id="itemNameLbl">—</div>
+      <div class="modal-item-code" id="itemCodeLbl">—</div>
+      <div class="sys-qty-badge">موجودی سیستم: <b id="itemSysQty">—</b></div>
+      <div class="qty-row">
+        <button class="qty-step" onclick="stepQty(-1)">−</button>
+        <input type="number" class="qty-input" id="qtyInput" inputmode="decimal" placeholder="0">
+        <button class="qty-step" onclick="stepQty(1)">+</button>
+      </div>
+      <textarea class="note-input" id="noteInput" placeholder="توضیحات (اختیاری)..."></textarea>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="closeCountModal()">انصراف</button>
+        <button class="btn btn-primary" id="submitCountBtn" onclick="submitCount()">ثبت و بعدی</button>
+      </div>
+    </div>
+    <div id="lookupError" style="display:none;">
+      <div class="msg err" id="lookupErrorMsg">کالا پیدا نشد.</div>
+      <button class="btn btn-secondary" onclick="closeCountModal()">بستن</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- کتابخانه‌ی اسکن بارکد/QR (پشتیبانی از انواع بارکد ۱بعدی رایج + QR) -->
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
