@@ -92,15 +92,33 @@ window.addEventListener('DOMContentLoaded', function () {
   });
 });
 
+function cleanUrlInput(raw) {
+  // کیبورد بعضی گوشی‌ها در صفحات راست‌به‌چپ، یک کاراکتر نامرئی جهت‌دهی متن
+  // (مثل U+200F) در ابتدای متن انگلیسی/آدرس اضافه می‌کند که باعث می‌شود
+  // آدرس با http شروع نشود، هرچند به چشم همان‌طور دیده می‌شود. این تابع
+  // چنین کاراکترهای نامرئی و فاصله‌های اضافه را پاک می‌کند.
+  return String(raw || '')
+    .replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, '')
+    .trim();
+}
+
 function doLogin() {
-  var serverUrl = document.getElementById('serverUrlInput').value.trim().replace(/\/$/, '');
+  var serverUrl = cleanUrlInput(document.getElementById('serverUrlInput').value).replace(/\/$/, '');
   var username = document.getElementById('loginUsername').value.trim();
   var password = document.getElementById('loginPassword').value;
   var msgBox = document.getElementById('loginMsg');
   msgBox.innerHTML = '';
 
-  if (!serverUrl || serverUrl.indexOf('http') !== 0) {
-    msgBox.innerHTML = '<div class="msg err">آدرس سامانه را کامل و درست وارد کنید.</div>';
+  if (!serverUrl) {
+    msgBox.innerHTML = '<div class="msg err">آدرس سامانه را وارد کنید.</div>';
+    return;
+  }
+  if (serverUrl.toLowerCase().indexOf('http') !== 0) {
+    msgBox.innerHTML = '<div class="msg err">آدرس باید با http:// یا https:// شروع شود. آدرس را دوباره کپی/پیست کنید.</div>';
+    return;
+  }
+  if (serverUrl.indexOf('XXXXX') !== -1 || serverUrl.indexOf('macros/s/') === -1) {
+    msgBox.innerHTML = '<div class="msg err">این آدرسِ نمونه (راهنما) است، نه آدرس واقعی. لینک وب‌اپ گوگل‌اسکریپت خودتان را که با «.../exec» تمام می‌شود جای‌گذاری کنید.</div>';
     return;
   }
   if (!username || !password) {
