@@ -92,33 +92,27 @@ window.addEventListener('DOMContentLoaded', function () {
   });
 });
 
-function cleanUrlInput(raw) {
-  // کیبورد بعضی گوشی‌ها در صفحات راست‌به‌چپ، یک کاراکتر نامرئی جهت‌دهی متن
-  // (مثل U+200F) در ابتدای متن انگلیسی/آدرس اضافه می‌کند که باعث می‌شود
-  // آدرس با http شروع نشود، هرچند به چشم همان‌طور دیده می‌شود. این تابع
-  // چنین کاراکترهای نامرئی و فاصله‌های اضافه را پاک می‌کند.
-  return String(raw || '')
-    .replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, '')
-    .trim();
-}
-
 function doLogin() {
-  var serverUrl = cleanUrlInput(document.getElementById('serverUrlInput').value).replace(/\/$/, '');
+  var serverUrl = document.getElementById('serverUrlInput').value.trim().replace(/\/$/, '');
   var username = document.getElementById('loginUsername').value.trim();
   var password = document.getElementById('loginPassword').value;
   var msgBox = document.getElementById('loginMsg');
   msgBox.innerHTML = '';
 
   if (!serverUrl) {
-    msgBox.innerHTML = '<div class="msg err">آدرس سامانه را وارد کنید.</div>';
+    msgBox.innerHTML = '<div class="msg err">کادر «آدرس سامانه» خالی است. آدرسی که با Deploy از Apps Script گرفتید (به شکل .../exec) را در همان کادر پیست کنید — نه آدرس همین صفحه (گیت‌هاب‌پیجز).</div>';
     return;
   }
-  if (serverUrl.toLowerCase().indexOf('http') !== 0) {
-    msgBox.innerHTML = '<div class="msg err">آدرس باید با http:// یا https:// شروع شود. آدرس را دوباره کپی/پیست کنید.</div>';
+  if (serverUrl.indexOf('http') !== 0) {
+    msgBox.innerHTML = '<div class="msg err">آدرس سامانه باید با https:// شروع شود. آدرس واردشده: «' + escapeHtml(serverUrl) + '»</div>';
     return;
   }
-  if (serverUrl.indexOf('XXXXX') !== -1 || serverUrl.indexOf('macros/s/') === -1) {
-    msgBox.innerHTML = '<div class="msg err">این آدرسِ نمونه (راهنما) است، نه آدرس واقعی. لینک وب‌اپ گوگل‌اسکریپت خودتان را که با «.../exec» تمام می‌شود جای‌گذاری کنید.</div>';
+  if (serverUrl.indexOf('github.io') !== -1) {
+    msgBox.innerHTML = '<div class="msg err">این آدرس گیت‌هاب‌پیجز است (همین اپ)، نه آدرس Apps Script. آدرس درست به شکل .../macros/s/XXXX/exec است؛ آن را از Google Apps Script → Deploy → Manage deployments کپی کنید.</div>';
+    return;
+  }
+  if (serverUrl.indexOf('/exec') === -1) {
+    msgBox.innerHTML = '<div class="msg err">آدرس واردشده به exec ختم نمی‌شود؛ لطفاً آدرس کامل دیپلوی (که به exec ختم می‌شود) را پیست کنید.</div>';
     return;
   }
   if (!username || !password) {
