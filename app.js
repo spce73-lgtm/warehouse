@@ -154,8 +154,8 @@ function doLogout() {
 }
 
 function enterApp() {
-  document.getElementById('whoLabel').textContent = state.fullName || state.username;
-  document.getElementById('whoSub').textContent = state.role || '';
+  setText('whoLabel', state.fullName || state.username);
+  setText('whoSub', state.role || '');
   showScreen('scanScreen');
   startScanner();
 }
@@ -164,6 +164,14 @@ function escapeHtml(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
   });
+}
+
+// تنظیم امن متن یک عنصر: اگر عنصر پیدا نشود، به‌جای کرش کردن کل برنامه، فقط
+// در کنسول هشدار می‌دهد و ادامه می‌دهد.
+function setText(id, value) {
+  var el = document.getElementById(id);
+  if (!el) { console.warn('عنصر با آی‌دی "' + id + '" در صفحه پیدا نشد.'); return; }
+  el.textContent = value;
 }
 
 // ---------------------------------------------------------------------
@@ -238,7 +246,7 @@ function handleCameraError(err) {
 }
 
 function showCamError(msg) {
-  document.getElementById('camErrorText').textContent = msg;
+  setText('camErrorText', msg);
   document.getElementById('camError').style.display = 'flex';
   document.getElementById('scanFrame').style.display = 'none';
 }
@@ -300,14 +308,14 @@ function openCountModal(code) {
     if (res.needLogin) { closeCountModal(); doLogout(); toast('نشست شما منقضی شده؛ دوباره وارد شوید.', 'err'); return; }
     if (!res.success) {
       document.getElementById('lookupError').style.display = 'block';
-      document.getElementById('lookupErrorMsg').textContent = res.message || 'کالا پیدا نشد.';
+      setText('lookupErrorMsg', res.message || 'کالا پیدا نشد.');
       vibrate([40, 60, 40]);
       return;
     }
     document.getElementById('lookupResult').style.display = 'block';
-    document.getElementById('itemNameLbl').textContent = res.name || '(بدون نام)';
-    document.getElementById('itemCodeLbl').textContent = res.code;
-    document.getElementById('itemSysQty').textContent = (res.systemQty === '' || res.systemQty == null) ? '—' : res.systemQty;
+    setText('itemNameLbl', res.name || '(بدون نام)');
+    setText('itemCodeLbl', res.code);
+    setText('itemSysQty', (res.systemQty === '' || res.systemQty == null) ? '—' : res.systemQty);
     var qtyEl = document.getElementById('qtyInput');
     qtyEl.value = '';
     document.getElementById('noteInput').value = '';
@@ -315,7 +323,7 @@ function openCountModal(code) {
   }).catch(function (err) {
     document.getElementById('lookupLoading').style.display = 'none';
     document.getElementById('lookupError').style.display = 'block';
-    document.getElementById('lookupErrorMsg').textContent = err.message;
+    setText('lookupErrorMsg', err.message);
   });
 }
 
@@ -348,7 +356,7 @@ function submitCount() {
       toast(res.message || 'خطا در ثبت.', 'err');
       return;
     }
-    var itemName = document.getElementById('itemNameLbl').textContent;
+    var itemNameEl = document.getElementById('itemNameLbl'); var itemName = itemNameEl ? itemNameEl.textContent : '';
     var diffTxt = (res.diff === '' || res.diff == null) ? '' : (Number(res.diff) > 0 ? '+' + res.diff : String(res.diff));
     addRecent(itemName, currentLookupCode, qty, res.diff);
     vibrate(80);
