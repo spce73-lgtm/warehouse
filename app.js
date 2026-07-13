@@ -1,14 +1,7 @@
-/* =========================================================================
- * اسکنر انبارگردانی موبایل — منطق برنامه
- * این صفحه به‌طور کامل مستقل از گوگل‌اسکریپت میزبانی می‌شود (مثلاً GitHub
- * Pages) تا محدودیت دسترسی به دوربین که در iframe داخلی گوگل‌اسکریپت وجود
- * دارد، دور زده شود. ارتباط با سرور فقط از طریق چند اکشن سبک JSON/JSONP
- * انجام می‌شود که به Code.gs اضافه شده‌اند (apiLogin / apiLookup / apiRecordCount).
- * ========================================================================= */
-
+// ===================== حافظه‌ی محلی =====================
 var LS_SERVER = 'wh_scanner_server_url';
 var LS_TOKEN = 'wh_scanner_token';
-var LS_USER = 'wh_scanner_user';
+var LS_USER = 'wh_scanner_username';
 var LS_ROLE = 'wh_scanner_role';
 var LS_FULLNAME = 'wh_scanner_fullname';
 
@@ -17,102 +10,88 @@ var state = {
   token: localStorage.getItem(LS_TOKEN) || '',
   username: localStorage.getItem(LS_USER) || '',
   role: localStorage.getItem(LS_ROLE) || '',
-  fullName: localStorage.getItem(LS_FULLNAME) || '',
-  html5Qrcode: null,
-  cameraRunning: false,
-  torchOn: false,
-  recent: []
+  fullName: localStorage.getItem(LS_FULLNAME) || ''
 };
 
-// ---------------------------------------------------------------------
-// ارتباط با سرور (JSONP — برای اینکه هیچ محدودیت CORS در هیچ مرورگری مشکل ایجاد نکند)
-// ---------------------------------------------------------------------
+var recentItems = [];
+var currentDetail = null; // آخرین کالایی که جزئیاتش باز شده
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+function setText(id, value) {
+  var el = document.getElementById(id);
+  if (!el) { console.warn('عنصر با آی‌دی "' + id + '" پیدا نشد.'); return; }
+  el.textContent = value;
+}
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(function (s) { s.classList.toggle('active', s.id === id); });
+}
+function showToast(msg, isErr) {
+  var t = document.getElementById('toast');
+  if (!t) return;
+  t.textContent = msg;
+  t.className = 'toast show' + (isErr ? ' err' : ' ok');
+  setTimeout(function () { t.className = 'toast'; }, 2200);
+}
+
+// ===================== ارتباط با سرور (JSONP - بدون نیاز به CORS) =====================
+var jsonpCounter = 0;
 function apiCall(action, params) {
   return new Promise(function (resolve, reject) {
-    if (!state.serverUrl) { reject(new Error('آدرس سامانه تنظیم نشده است.')); return; }
-    var cbName = 'whcb_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
-    var done = false;
-    window[cbName] = function (data) {
-      done = true;
-      resolve(data);
-      cleanup();
-    };
-    var qs = 'action=' + encodeURIComponent(action);
-    Object.keys(params || {}).forEach(function (k) { qs += '&' + k + '=' + encodeURIComponent(params[k] == null ? '' : params[k]); });
-    qs += '&callback=' + cbName;
-
-    var sep = state.serverUrl.indexOf('?') >= 0 ? '&' : '?';
+    var cbName = 'whCb_' + (jsonpCounter++) + '_' + Date.now();
     var script = document.createElement('script');
-    script.src = state.serverUrl + sep + qs;
+    var timeout = setTimeout(function () {
+      cleanup();
+      reject(new Error('سرور در زمان مناسب پاسخ نداد.'));
+    }, 15000);
+
     function cleanup() {
-      try { delete window[cbName]; } catch (e) { window[cbName] = undefined; }
+      clearTimeout(timeout);
+      delete window[cbName];
       if (script.parentNode) script.parentNode.removeChild(script);
     }
-    script.onerror = function () {
-      if (!done) { reject(new Error('اتصال به سرور برقرار نشد. آدرس سامانه و اینترنت را بررسی کنید.')); cleanup(); }
+
+    window[cbName] = function (data) {
+      cleanup();
+      resolve(data);
     };
+
+    var qs = 'action=' + encodeURIComponent(action) + '&callback=' + cbName;
+    for (var k in params) {
+      if (params[k] !== undefined && params[k] !== null) qs += '&' + k + '=' + encodeURIComponent(params[k]);
+    }
+    script.src = state.serverUrl + '?' + qs;
+    script.onerror = function () { cleanup(); reject(new Error('اتصال به سرور برقرار نشد.')); };
     document.body.appendChild(script);
-    setTimeout(function () {
-      if (!done) { reject(new Error('سرور در زمان مناسب پاسخ نداد.')); cleanup(); }
-    }, 15000);
   });
 }
 
-// ---------------------------------------------------------------------
-// UI کمکی‌ها
-// ---------------------------------------------------------------------
-function showScreen(id) {
-  document.querySelectorAll('.screen').forEach(function (s) { s.classList.remove('active'); });
-  document.getElementById(id).classList.add('active');
-}
-
-function toast(msg, kind) {
-  var t = document.getElementById('toast');
-  t.textContent = msg;
-  t.className = 'toast show' + (kind ? (' ' + kind) : '');
-  clearTimeout(toast._tm);
-  toast._tm = setTimeout(function () { t.classList.remove('show'); }, 2600);
-}
-
-function vibrate(ms) { if (navigator.vibrate) { try { navigator.vibrate(ms || 60); } catch (e) {} } }
-
-// ---------------------------------------------------------------------
-// ورود / خروج
-// ---------------------------------------------------------------------
-window.addEventListener('DOMContentLoaded', function () {
-  document.getElementById('serverUrlInput').value = state.serverUrl;
-  if (state.serverUrl && state.token && state.username) {
-    enterApp();
-  }
-  document.getElementById('loginPassword').addEventListener('keydown', function (ev) {
-    if (ev.key === 'Enter') doLogin();
-  });
-  document.getElementById('manualCode').addEventListener('keydown', function (ev) {
-    if (ev.key === 'Enter') lookupManual();
-  });
-});
-
+// ===================== ورود =====================
 function doLogin() {
-  var serverUrl = document.getElementById('serverUrlInput').value.trim().replace(/\/$/, '');
+  var serverUrl = document.getElementById('serverUrlInput').value.trim();
   var username = document.getElementById('loginUsername').value.trim();
   var password = document.getElementById('loginPassword').value;
   var msgBox = document.getElementById('loginMsg');
+  var btn = document.getElementById('loginBtn');
   msgBox.innerHTML = '';
 
   if (!serverUrl) {
-    msgBox.innerHTML = '<div class="msg err">کادر «آدرس سامانه» خالی است. آدرسی که با Deploy از Apps Script گرفتید (به شکل .../exec) را در همان کادر پیست کنید — نه آدرس همین صفحه (گیت‌هاب‌پیجز).</div>';
+    msgBox.innerHTML = '<div class="msg err">کادر «آدرس سامانه» خالی است. آدرس Apps Script (.../exec) را پیست کنید.</div>';
     return;
   }
   if (serverUrl.indexOf('http') !== 0) {
-    msgBox.innerHTML = '<div class="msg err">آدرس سامانه باید با https:// شروع شود. آدرس واردشده: «' + escapeHtml(serverUrl) + '»</div>';
+    msgBox.innerHTML = '<div class="msg err">آدرس سامانه باید با https:// شروع شود.</div>';
     return;
   }
   if (serverUrl.indexOf('github.io') !== -1) {
-    msgBox.innerHTML = '<div class="msg err">این آدرس گیت‌هاب‌پیجز است (همین اپ)، نه آدرس Apps Script. آدرس درست به شکل .../macros/s/XXXX/exec است؛ آن را از Google Apps Script → Deploy → Manage deployments کپی کنید.</div>';
+    msgBox.innerHTML = '<div class="msg err">این آدرس گیت‌هاب‌پیجز است (همین اپ)، نه آدرس Apps Script.</div>';
     return;
   }
   if (serverUrl.indexOf('/exec') === -1) {
-    msgBox.innerHTML = '<div class="msg err">آدرس واردشده به exec ختم نمی‌شود؛ لطفاً آدرس کامل دیپلوی (که به exec ختم می‌شود) را پیست کنید.</div>';
+    msgBox.innerHTML = '<div class="msg err">آدرس واردشده باید به exec ختم شود.</div>';
     return;
   }
   if (!username || !password) {
@@ -120,12 +99,10 @@ function doLogin() {
     return;
   }
 
-  state.serverUrl = serverUrl;
-  localStorage.setItem(LS_SERVER, serverUrl);
+  state.serverUrl = serverUrl.replace(/\/$/, '');
+  localStorage.setItem(LS_SERVER, state.serverUrl);
 
-  var btn = document.getElementById('loginBtn');
   btn.disabled = true; btn.textContent = 'در حال ورود...';
-
   apiCall('apiLogin', { username: username, password: password }).then(function (res) {
     btn.disabled = false; btn.textContent = 'ورود';
     if (!res.success) {
@@ -145,250 +122,280 @@ function doLogin() {
 }
 
 function doLogout() {
-  stopScanner();
-  state.token = '';
   localStorage.removeItem(LS_TOKEN);
-  document.getElementById('loginPassword').value = '';
-  document.getElementById('loginMsg').innerHTML = '';
+  localStorage.removeItem(LS_USER);
+  localStorage.removeItem(LS_ROLE);
+  localStorage.removeItem(LS_FULLNAME);
+  state.token = ''; state.username = ''; state.role = ''; state.fullName = '';
+  closeScanner();
   showScreen('loginScreen');
 }
 
 function enterApp() {
   setText('whoLabel', state.fullName || state.username);
   setText('whoSub', state.role || '');
-  showScreen('scanScreen');
-  startScanner();
+  showScreen('mainScreen');
+  renderRecentList();
 }
 
-function escapeHtml(s) {
-  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
-    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+// ===================== جست‌وجو (دستی یا اسکن‌شده - دقیقاً یک مسیر مشترک) =====================
+var searchInput = document.getElementById('searchInput');
+if (searchInput) {
+  searchInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); doSearch(); }
   });
 }
 
-// تنظیم امن متن یک عنصر: اگر عنصر پیدا نشود، به‌جای کرش کردن کل برنامه، فقط
-// در کنسول هشدار می‌دهد و ادامه می‌دهد.
-function setText(id, value) {
-  var el = document.getElementById(id);
-  if (!el) { console.warn('عنصر با آی‌دی "' + id + '" در صفحه پیدا نشد.'); return; }
-  el.textContent = value;
-}
+function doSearch() {
+  var q = document.getElementById('searchInput').value.trim();
+  if (!q) { showToast('چیزی برای جست‌وجو تایپ یا اسکن کنید', true); return; }
+  var area = document.getElementById('resultArea');
+  area.innerHTML = '<div class="lookup-loading"><div class="spinner"></div> در حال جست‌وجو...</div>';
 
-// ---------------------------------------------------------------------
-// دوربین / اسکن بارکد
-// ---------------------------------------------------------------------
-function startScanner() {
-  document.getElementById('camError').style.display = 'none';
-  document.getElementById('scanFrame').style.display = 'block';
-
-  if (!window.isSecureContext) {
-    showCamError('این صفحه باید با HTTPS باز شود تا دوربین در دسترس باشد.');
-    return;
-  }
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    showCamError('مرورگر شما از دسترسی به دوربین پشتیبانی نمی‌کند. لطفاً از Chrome یا Safari بروزرسانی‌شده استفاده کنید، یا کد را دستی وارد کنید.');
-    return;
-  }
-
-  if (!state.html5Qrcode) {
-    state.html5Qrcode = new Html5Qrcode('qrReader', /* verbose= */ false);
-  }
-  if (state.cameraRunning) return;
-
-  var config = {
-    fps: 12,
-    qrbox: function (viewfinderWidth, viewfinderHeight) {
-      var w = Math.floor(Math.min(viewfinderWidth, 420) * 0.78);
-      var h = Math.floor(w * 0.56);
-      return { width: w, height: h };
-    },
-    aspectRatio: 1.4,
-    formatsToSupport: (window.Html5QrcodeSupportedFormats ? [
-      Html5QrcodeSupportedFormats.QR_CODE, Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.EAN_8,
-      Html5QrcodeSupportedFormats.CODE_128, Html5QrcodeSupportedFormats.CODE_39, Html5QrcodeSupportedFormats.UPC_A,
-      Html5QrcodeSupportedFormats.UPC_E, Html5QrcodeSupportedFormats.CODABAR, Html5QrcodeSupportedFormats.ITF
-    ] : undefined)
-  };
-
-  state.html5Qrcode.start(
-    { facingMode: 'environment' },
-    config,
-    onScanSuccess,
-    function onScanFailure() { /* فریم‌هایی که چیزی در آن‌ها پیدا نشد؛ نیازی به کاری نیست */ }
-  ).then(function () {
-    state.cameraRunning = true;
-    detectTorchSupport();
-  }).catch(function (err) {
-    // اگر دوربین پشت گیر نیاورد (مثلاً تبلت/لپ‌تاپ)، دوربین جلو را امتحان کن
-    state.html5Qrcode.start(
-      { facingMode: 'user' }, config, onScanSuccess, function () {}
-    ).then(function () {
-      state.cameraRunning = true;
-    }).catch(function (err2) {
-      handleCameraError(err2 || err);
-    });
-  });
-}
-
-function handleCameraError(err) {
-  var msg = 'دسترسی به دوربین ممکن نشد.';
-  var name = (err && (err.name || err.message || String(err))) || '';
-  if (/NotAllowedError|Permission/i.test(name)) {
-    msg = 'اجازه‌ی دسترسی به دوربین داده نشده است. از تنظیمات مرورگر (آیکون قفل کنار آدرس) دسترسی دوربین را برای این سایت فعال کنید.';
-  } else if (/NotFoundError/i.test(name)) {
-    msg = 'هیچ دوربینی روی این دستگاه پیدا نشد.';
-  } else if (/NotReadableError/i.test(name)) {
-    msg = 'دوربین توسط برنامه‌ی دیگری در حال استفاده است. بقیه‌ی برنامه‌های دوربین را ببندید و دوباره تلاش کنید.';
-  } else if (/https|secure/i.test(name)) {
-    msg = 'این صفحه باید با HTTPS باز شود.';
-  }
-  showCamError(msg);
-}
-
-function showCamError(msg) {
-  setText('camErrorText', msg);
-  document.getElementById('camError').style.display = 'flex';
-  document.getElementById('scanFrame').style.display = 'none';
-}
-
-function stopScanner() {
-  if (state.html5Qrcode && state.cameraRunning) {
-    state.html5Qrcode.stop().then(function () {
-      state.cameraRunning = false;
-    }).catch(function () { state.cameraRunning = false; });
-  }
-}
-
-function detectTorchSupport() {
-  try {
-    var caps = state.html5Qrcode.getRunningTrackCapabilities();
-    if (caps && caps.torch) document.getElementById('torchBtn').style.display = 'flex';
-  } catch (e) {}
-}
-
-function toggleTorch() {
-  if (!state.html5Qrcode) return;
-  state.torchOn = !state.torchOn;
-  state.html5Qrcode.applyVideoConstraints({ advanced: [{ torch: state.torchOn }] }).catch(function () {
-    toast('چراغ‌قوه روی این دستگاه پشتیبانی نمی‌شود.', 'err');
-    state.torchOn = false;
-  });
-}
-
-var lastScanCode = '', lastScanAt = 0;
-function onScanSuccess(decodedText) {
-  var now = Date.now();
-  if (decodedText === lastScanCode && (now - lastScanAt) < 2500) return; // جلوگیری از ثبت تکراری فوری
-  lastScanCode = decodedText; lastScanAt = now;
-  vibrate(50);
-  openCountModal(decodedText);
-}
-
-function lookupManual() {
-  var code = document.getElementById('manualCode').value.trim();
-  if (!code) return;
-  document.getElementById('manualCode').value = '';
-  openCountModal(code);
-}
-
-// ---------------------------------------------------------------------
-// پاپ‌آپ جستجو + ثبت شمارش
-// ---------------------------------------------------------------------
-var currentLookupCode = null;
-
-function openCountModal(code) {
-  currentLookupCode = code;
-  document.getElementById('countOverlay').classList.add('open');
-  document.getElementById('lookupLoading').style.display = 'flex';
-  document.getElementById('lookupResult').style.display = 'none';
-  document.getElementById('lookupError').style.display = 'none';
-
-  apiCall('apiLookup', { token: state.token, code: code }).then(function (res) {
-    document.getElementById('lookupLoading').style.display = 'none';
-    if (res.needLogin) { closeCountModal(); doLogout(); toast('نشست شما منقضی شده؛ دوباره وارد شوید.', 'err'); return; }
+  apiCall('apiSearch', { token: state.token, q: q }).then(function (res) {
     if (!res.success) {
-      document.getElementById('lookupError').style.display = 'block';
-      setText('lookupErrorMsg', res.message || 'کالا پیدا نشد.');
-      vibrate([40, 60, 40]);
+      if (res.needLogin) { doLogout(); return; }
+      area.innerHTML = '<div class="empty-hint">' + escapeHtml(res.message || 'خطا در جست‌وجو') + '</div>';
       return;
     }
-    document.getElementById('lookupResult').style.display = 'block';
-    setText('itemNameLbl', res.name || '(بدون نام)');
-    setText('itemCodeLbl', res.code);
-    setText('itemSysQty', (res.systemQty === '' || res.systemQty == null) ? '—' : res.systemQty);
-    var qtyEl = document.getElementById('qtyInput');
-    qtyEl.value = '';
-    document.getElementById('noteInput').value = '';
-    setTimeout(function () { qtyEl.focus(); }, 200);
+    var results = res.results || [];
+    if (results.length === 0) {
+      area.innerHTML = '<div class="empty-hint">چیزی با «' + escapeHtml(q) + '» پیدا نشد.</div>';
+    } else if (results.length === 1) {
+      openItemDetail(results[0].code);
+    } else {
+      renderResultsList(results, q);
+    }
   }).catch(function (err) {
-    document.getElementById('lookupLoading').style.display = 'none';
-    document.getElementById('lookupError').style.display = 'block';
-    setText('lookupErrorMsg', err.message);
+    area.innerHTML = '<div class="empty-hint">' + escapeHtml(err.message) + '</div>';
   });
 }
 
-function closeCountModal() {
-  document.getElementById('countOverlay').classList.remove('open');
-  currentLookupCode = null;
+function renderResultsList(results, q) {
+  var area = document.getElementById('resultArea');
+  var html = '<div class="section-title">' + results.length + ' نتیجه برای «' + escapeHtml(q) + '»</div><div class="result-list">';
+  results.forEach(function (r) {
+    html +=
+      '<div class="result-row" onclick="openItemDetail(\'' + escapeHtml(r.code).replace(/'/g, "\\'") + '\')">' +
+        '<div class="result-thumb">' + (r.thumb ? '<img src="' + escapeHtml(r.thumb) + '">' : '📦') + '</div>' +
+        '<div class="result-info">' +
+          '<div class="result-name">' + escapeHtml(r.name || '(بدون نام)') + '</div>' +
+          '<div class="result-meta">' +
+            '<span class="code-pill-sm">' + escapeHtml(r.code) + '</span>' +
+            (r.category ? '<span>' + escapeHtml(r.category) + '</span>' : '') +
+            (r.qty !== '' && r.qty != null ? '<span>موجودی: ' + escapeHtml(r.qty) + '</span>' : '') +
+          '</div>' +
+        '</div>' +
+      '</div>';
+  });
+  html += '</div>';
+  area.innerHTML = html;
+}
+
+// ===================== جزئیات کامل کالا (مثل صفحه‌ی جست‌وجوی سامانه‌ی اصلی) =====================
+function openItemDetail(code) {
+  var area = document.getElementById('resultArea');
+  area.innerHTML = '<div class="lookup-loading"><div class="spinner"></div> در حال دریافت مشخصات کالا...</div>';
+
+  apiCall('apiLookup', { token: state.token, code: code }).then(function (res) {
+    if (!res.success) {
+      if (res.needLogin) { doLogout(); return; }
+      area.innerHTML =
+        '<button class="back-link" onclick="renderRecentList()">‹ بازگشت</button>' +
+        '<div class="empty-hint">' + escapeHtml(res.message || 'کالا پیدا نشد.') + '</div>';
+      return;
+    }
+    currentDetail = res;
+    renderItemDetail(res);
+  }).catch(function (err) {
+    area.innerHTML = '<div class="empty-hint">' + escapeHtml(err.message) + '</div>';
+  });
+}
+
+function renderItemDetail(item) {
+  var area = document.getElementById('resultArea');
+  var images = item.images || [];
+  var fields = item.fields || [];
+
+  var galleryHtml;
+  if (images.length) {
+    galleryHtml = '<div class="item-gallery">' + images.map(function (src) {
+      return '<img src="' + escapeHtml(src) + '" onerror="this.style.display=\'none\'">';
+    }).join('') + '</div>';
+  } else {
+    galleryHtml = '<div class="item-noimg">تصویری ثبت نشده</div>';
+  }
+
+  var fieldsHtml = '';
+  if (fields.length) {
+    fieldsHtml = '<div class="item-fields">' + fields.map(function (f) {
+      return '<div class="item-field"><div class="k">' + escapeHtml(f[0]) + '</div><div class="v">' + escapeHtml(f[1]) + '</div></div>';
+    }).join('') + '</div>';
+  }
+
+  var html =
+    '<div class="item-detail-card">' +
+      '<button class="back-link" onclick="renderRecentList()">‹ بازگشت</button>' +
+      galleryHtml +
+      '<div class="item-title">' + escapeHtml(item.name || '(بدون نام)') + '</div>' +
+      '<div class="item-code-pill">' + escapeHtml(item.code) + '</div>' +
+      fieldsHtml +
+      '<div class="sys-qty-row"><span class="k">موجودی سیستم</span><span class="v">' + escapeHtml(item.systemQty !== '' && item.systemQty != null ? item.systemQty : '—') + '</span></div>' +
+      '<div class="count-form-title">ثبت شمارش انبارگردانی</div>' +
+      '<div class="qty-row">' +
+        '<button class="qty-step" onclick="stepQty(-1)">−</button>' +
+        '<input type="number" class="qty-input" id="qtyInput" inputmode="decimal" placeholder="0" oninput="updateDiffPreview()">' +
+        '<button class="qty-step" onclick="stepQty(1)">+</button>' +
+      '</div>' +
+      '<div class="diff-preview" id="diffPreview"></div>' +
+      '<textarea class="note-input" id="noteInput" placeholder="توضیحات (اختیاری)..."></textarea>' +
+      '<button class="btn btn-primary" id="submitCountBtn" onclick="submitCount()">ثبت و بازگشت به جست‌وجو</button>' +
+    '</div>';
+
+  area.innerHTML = html;
+  setTimeout(function () {
+    var q = document.getElementById('qtyInput');
+    if (q) q.focus();
+  }, 100);
 }
 
 function stepQty(delta) {
-  var el = document.getElementById('qtyInput');
-  var v = Number(el.value) || 0;
-  v = Math.max(0, v + delta);
-  el.value = v;
+  var i = document.getElementById('qtyInput');
+  if (!i) return;
+  i.value = Math.max(0, (parseFloat(i.value || '0') || 0) + delta);
+  updateDiffPreview();
+}
+
+function updateDiffPreview() {
+  var el = document.getElementById('diffPreview');
+  if (!el || !currentDetail) return;
+  var qtyEl = document.getElementById('qtyInput');
+  var qty = qtyEl ? qtyEl.value : '';
+  if (qty === '') { el.textContent = ''; el.className = 'diff-preview'; return; }
+  var sys = Number(currentDetail.systemQty);
+  var phys = Number(qty);
+  if (isNaN(sys) || isNaN(phys)) { el.textContent = ''; return; }
+  var diff = phys - sys;
+  if (diff === 0) { el.textContent = 'مطابق موجودی سیستم'; el.className = 'diff-preview ok'; }
+  else if (diff > 0) { el.textContent = 'اضافه: +' + diff; el.className = 'diff-preview ok'; }
+  else { el.textContent = 'کسری: ' + diff; el.className = 'diff-preview bad'; }
 }
 
 function submitCount() {
-  var qty = document.getElementById('qtyInput').value;
-  var note = document.getElementById('noteInput').value.trim();
-  if (qty === '' || isNaN(Number(qty))) {
-    toast('لطفاً تعداد را وارد کنید.', 'err');
-    return;
-  }
+  if (!currentDetail) return;
+  var qtyEl = document.getElementById('qtyInput');
+  var qty = qtyEl ? qtyEl.value : '';
+  if (qty === '') { showToast('عدد شمارش را وارد کنید', true); if (qtyEl) qtyEl.focus(); return; }
+  var note = (document.getElementById('noteInput') || {}).value || '';
   var btn = document.getElementById('submitCountBtn');
   btn.disabled = true; btn.textContent = 'در حال ثبت...';
 
-  apiCall('apiRecordCount', { token: state.token, code: currentLookupCode, qty: qty, note: note }).then(function (res) {
-    btn.disabled = false; btn.textContent = 'ثبت و بعدی';
-    if (res.needLogin) { closeCountModal(); doLogout(); toast('نشست شما منقضی شده؛ دوباره وارد شوید.', 'err'); return; }
-    if (!res.success) {
-      toast(res.message || 'خطا در ثبت.', 'err');
-      return;
-    }
-    var itemNameEl = document.getElementById('itemNameLbl'); var itemName = itemNameEl ? itemNameEl.textContent : '';
-    var diffTxt = (res.diff === '' || res.diff == null) ? '' : (Number(res.diff) > 0 ? '+' + res.diff : String(res.diff));
-    addRecent(itemName, currentLookupCode, qty, res.diff);
-    vibrate(80);
-    toast('«' + itemName + '» ثبت شد' + (diffTxt ? (' (' + diffTxt + ')') : ''), 'ok');
-    closeCountModal();
+  apiCall('apiRecordCount', { token: state.token, code: currentDetail.code, qty: qty, note: note }).then(function (res) {
+    btn.disabled = false; btn.textContent = 'ثبت و بازگشت به جست‌وجو';
+    if (!res.success) { showToast(res.message || 'خطا در ثبت', true); return; }
+    addToRecent(currentDetail, qty, res.diff);
+    showToast('✓ ثبت شد — آماده برای اسکن بعدی');
+    document.getElementById('searchInput').value = '';
+    renderRecentList();
+    // به‌صورت خودکار دوربین را دوباره باز کن تا کالای بعدی سریع اسکن شود
+    setTimeout(function () { openScanner(); }, 500);
+    return;
   }).catch(function (err) {
-    btn.disabled = false; btn.textContent = 'ثبت و بعدی';
-    toast(err.message, 'err');
+    btn.disabled = false; btn.textContent = 'ثبت و بازگشت به جست‌وجو';
+    showToast(err.message, true);
   });
 }
 
-function addRecent(name, code, qty, diff) {
-  state.recent.unshift({ name: name, code: code, qty: qty, diff: diff });
-  if (state.recent.length > 8) state.recent.pop();
-  renderRecent();
+// ===================== لیست اخیر =====================
+function addToRecent(item, qty, diff) {
+  recentItems.unshift({ name: item.name, code: item.code, qty: qty, diff: diff });
+  if (recentItems.length > 15) recentItems.pop();
 }
 
-function renderRecent() {
-  var box = document.getElementById('recentList');
-  if (!state.recent.length) { box.innerHTML = '<div class="recent-empty">هنوز چیزی ثبت نشده.</div>'; return; }
-  box.innerHTML = state.recent.map(function (r) {
-    var d = Number(r.diff);
-    var cls = (!isNaN(d) && d > 0) ? 'plus' : ((!isNaN(d) && d < 0) ? 'minus' : '');
-    var diffTxt = (r.diff === '' || r.diff == null) ? '' : (d > 0 ? '+' + r.diff : r.diff);
-    return '<div class="recent-item"><span><b>' + escapeHtml(r.name) + '</b> · ' + escapeHtml(r.qty) + ' عدد</span>' +
-      (diffTxt ? ('<span class="diff ' + cls + '">' + escapeHtml(diffTxt) + '</span>') : '') + '</div>';
-  }).join('');
+function renderRecentList() {
+  currentDetail = null;
+  var area = document.getElementById('resultArea');
+  var html = '<div class="section-title">آخرین موارد ثبت‌شده در این جلسه</div>';
+  if (recentItems.length === 0) {
+    html += '<div class="empty-hint">هنوز چیزی ثبت نشده؛ کد کالا را تایپ یا اسکن کنید.</div>';
+  } else {
+    recentItems.forEach(function (it) {
+      var diffTxt = '';
+      var diffClass = '';
+      if (it.diff !== '' && it.diff != null) {
+        if (it.diff > 0) { diffTxt = '+' + it.diff; diffClass = 'plus'; }
+        else if (it.diff < 0) { diffTxt = String(it.diff); diffClass = 'minus'; }
+        else { diffTxt = '۰'; }
+      }
+      html += '<div class="recent-item"><span><b>' + escapeHtml(it.name) + '</b> — ' + escapeHtml(it.code) + '</span>' +
+        '<span>شمارش: ' + escapeHtml(it.qty) + (diffTxt ? ' <span class="diff ' + diffClass + '">(' + diffTxt + ')</span>' : '') + '</span></div>';
+    });
+  }
+  area.innerHTML = html;
 }
 
-// ثبت Service Worker برای نصب واقعیِ اپ روی اندروید (اختیاری، در صورت وجود فایل)
+// ===================== اسکنر (فقط با زدن آیکون دوربین باز می‌شود) =====================
+var html5QrCode = null;
+var scannerRunning = false;
+
+function openScanner() {
+  document.getElementById('scannerOverlay').classList.add('open');
+  document.getElementById('camError').style.display = 'none';
+  if (!html5QrCode) html5QrCode = new Html5Qrcode('qrReader');
+  html5QrCode.start(
+    { facingMode: 'environment' },
+    { fps: 10, qrbox: { width: 260, height: 150 } },
+    function onScanSuccess(decodedText) {
+      onCodeDetected(decodedText);
+    },
+    function onScanFailure() {}
+  ).then(function () {
+    scannerRunning = true;
+  }).catch(function () {
+    document.getElementById('camError').style.display = 'flex';
+  });
+}
+
+function closeScanner() {
+  document.getElementById('scannerOverlay').classList.remove('open');
+  if (html5QrCode && scannerRunning) {
+    html5QrCode.stop().then(function () { scannerRunning = false; }).catch(function () { scannerRunning = false; });
+  }
+}
+
+function extractItemCode(raw) {
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      var u = new URL(raw);
+      var idParam = u.searchParams.get('id');
+      if (idParam) return idParam;
+    } catch (e) {}
+  }
+  return raw;
+}
+
+var lastScanned = null, lastScanTime = 0;
+function onCodeDetected(raw) {
+  var now = Date.now();
+  if (raw === lastScanned && (now - lastScanTime) < 2500) return;
+  lastScanned = raw; lastScanTime = now;
+  var code = extractItemCode(raw);
+  closeScanner();
+  // دقیقاً همان مسیر جست‌وجوی دستی: کد اسکن‌شده در کادر جست‌وجو گذاشته و جست‌وجو می‌شود
+  document.getElementById('searchInput').value = code;
+  doSearch();
+}
+
+// ===================== شروع برنامه =====================
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', function () {
-    navigator.serviceWorker.register('sw.js').catch(function () {});
-  });
+  navigator.serviceWorker.register('./sw.js').catch(function () {});
+}
+
+if (state.serverUrl) {
+  document.getElementById('serverUrlInput').value = state.serverUrl;
+}
+if (state.token && state.username) {
+  enterApp();
+} else {
+  showScreen('loginScreen');
 }
