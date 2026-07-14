@@ -15,6 +15,8 @@ var state = {
 
 var recentItems = [];
 var currentDetail = null; // آخرین کالایی که جزئیاتش باز شده
+var lastSearchResults = null; // آخرین نتایج جست‌وجو (برای «بازگشت به جست‌وجو»)
+var lastSearchQuery = '';
 
 function escapeHtml(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -159,6 +161,8 @@ function doSearch() {
       return;
     }
     var results = res.results || [];
+    lastSearchResults = results;
+    lastSearchQuery = q;
     if (results.length === 0) {
       area.innerHTML = '<div class="empty-hint">چیزی با «' + escapeHtml(q) + '» پیدا نشد.</div>';
     } else if (results.length === 1) {
@@ -201,7 +205,7 @@ function openItemDetail(code) {
     if (!res.success) {
       if (res.needLogin) { doLogout(); return; }
       area.innerHTML =
-        '<button class="back-link" onclick="renderRecentList()">‹ بازگشت</button>' +
+        '<button class="back-link" onclick="backToSearch()">‹ بازگشت به جست‌وجو</button>' +
         '<div class="empty-hint">' + escapeHtml(res.message || 'کالا پیدا نشد.') + '</div>';
       return;
     }
@@ -235,7 +239,7 @@ function renderItemDetail(item) {
 
   var html =
     '<div class="item-detail-card">' +
-      '<button class="back-link" onclick="renderRecentList()">‹ بازگشت</button>' +
+      '<button class="back-link" onclick="backToSearch()">‹ بازگشت به جست‌وجو</button>' +
       galleryHtml +
       '<div class="item-title">' + escapeHtml(item.name || '(بدون نام)') + '</div>' +
       '<div class="item-code-pill">' + escapeHtml(item.code) + '</div>' +
@@ -294,12 +298,10 @@ function submitCount() {
     btn.disabled = false; btn.textContent = 'ثبت و بازگشت به جست‌وجو';
     if (!res.success) { showToast(res.message || 'خطا در ثبت', true); return; }
     addToRecent(currentDetail, qty, res.diff);
-    showToast('✓ ثبت شد — آماده برای اسکن بعدی');
+    showToast('✓ ثبت شد');
     document.getElementById('searchInput').value = '';
+    lastSearchResults = null;
     renderRecentList();
-    // به‌صورت خودکار دوربین را دوباره باز کن تا کالای بعدی سریع اسکن شود
-    setTimeout(function () { openScanner(); }, 500);
-    return;
   }).catch(function (err) {
     btn.disabled = false; btn.textContent = 'ثبت و بازگشت به جست‌وجو';
     showToast(err.message, true);
@@ -310,6 +312,15 @@ function submitCount() {
 function addToRecent(item, qty, diff) {
   recentItems.unshift({ name: item.name, code: item.code, qty: qty, diff: diff });
   if (recentItems.length > 15) recentItems.pop();
+}
+
+function backToSearch() {
+  currentDetail = null;
+  if (lastSearchResults && lastSearchResults.length > 1) {
+    renderResultsList(lastSearchResults, lastSearchQuery);
+  } else {
+    renderRecentList();
+  }
 }
 
 function renderRecentList() {
