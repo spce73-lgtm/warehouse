@@ -352,10 +352,29 @@ var scannerRunning = false;
 function openScanner() {
   document.getElementById('scannerOverlay').classList.add('open');
   document.getElementById('camError').style.display = 'none';
-  if (!html5QrCode) html5QrCode = new Html5Qrcode('qrReader');
+  if (!html5QrCode) html5QrCode = new Html5Qrcode('qrReader', { experimentalFeatures: { useBarCodeDetectorIfSupported: true } });
+
+  // کادر اسکن حالا مربعی و متناسب با اندازه‌ی صفحه است (نه یک مستطیل کشیده که
+  // باعث می‌شد کیوآرکد مربعی به‌سختی و از فاصله‌ی دور داخلش جا شود)
+  function computeQrbox(viewfinderWidth, viewfinderHeight) {
+    var minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+    var size = Math.floor(minEdge * 0.78);
+    return { width: size, height: size };
+  }
+
   html5QrCode.start(
     { facingMode: 'environment' },
-    { fps: 10, qrbox: { width: 260, height: 150 } },
+    {
+      fps: 12,
+      qrbox: computeQrbox,
+      aspectRatio: 1.0,
+      videoConstraints: {
+        facingMode: 'environment',
+        width: { ideal: 1920 },
+        height: { ideal: 1920 },
+        advanced: [{ focusMode: 'continuous' }]
+      }
+    },
     function onScanSuccess(decodedText) {
       onCodeDetected(decodedText);
     },
