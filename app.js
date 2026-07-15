@@ -352,38 +352,36 @@ var scannerRunning = false;
 function openScanner() {
   document.getElementById('scannerOverlay').classList.add('open');
   document.getElementById('camError').style.display = 'none';
-  if (!html5QrCode) html5QrCode = new Html5Qrcode('qrReader', { experimentalFeatures: { useBarCodeDetectorIfSupported: true } });
+  if (!html5QrCode) html5QrCode = new Html5Qrcode('qrReader');
 
-  // کادر اسکن حالا مربعی و متناسب با اندازه‌ی صفحه است (نه یک مستطیل کشیده که
-  // باعث می‌شد کیوآرکد مربعی به‌سختی و از فاصله‌ی دور داخلش جا شود)
+  // کادر اسکن مربعی و متناسب با اندازه‌ی صفحه
   function computeQrbox(viewfinderWidth, viewfinderHeight) {
     var minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-    var size = Math.floor(minEdge * 0.78);
+    var size = Math.floor(minEdge * 0.75);
     return { width: size, height: size };
   }
 
-  html5QrCode.start(
-    { facingMode: 'environment' },
-    {
-      fps: 12,
-      qrbox: computeQrbox,
-      aspectRatio: 1.0,
-      videoConstraints: {
-        facingMode: 'environment',
-        width: { ideal: 1920 },
-        height: { ideal: 1920 },
-        advanced: [{ focusMode: 'continuous' }]
-      }
-    },
-    function onScanSuccess(decodedText) {
-      onCodeDetected(decodedText);
-    },
-    function onScanFailure() {}
-  ).then(function () {
-    scannerRunning = true;
-  }).catch(function () {
-    document.getElementById('camError').style.display = 'flex';
-  });
+  // مکث کوتاه تا لایه‌ی دوربین کامل روی صفحه دیده شود و اندازه‌گیری کادر
+  // (که همین الان انجام می‌شود) عدد درست و واقعی بگیرد، نه صفر یا اشتباه.
+  setTimeout(function () {
+    html5QrCode.start(
+      { facingMode: 'environment' },
+      {
+        fps: 10,
+        qrbox: computeQrbox,
+        aspectRatio: 1.0,
+        videoConstraints: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+      },
+      function onScanSuccess(decodedText) {
+        onCodeDetected(decodedText);
+      },
+      function onScanFailure() {}
+    ).then(function () {
+      scannerRunning = true;
+    }).catch(function () {
+      document.getElementById('camError').style.display = 'flex';
+    });
+  }, 120);
 }
 
 function closeScanner() {
