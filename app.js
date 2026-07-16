@@ -14,23 +14,27 @@ var state = {
 };
 
 var recentItems = [];
-var currentDetail = null; // آخرین کالایی که جزئیاتش باز شده
-var lastSearchResults = null; // آخرین نتایج جست‌وجو (برای «بازگشت به جست‌وجو»)
+var currentDetail = null;
+var lastSearchResults = null;
 var lastSearchQuery = '';
 
+// ===================== Utility Functions =====================
 function escapeHtml(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
   });
 }
+
 function setText(id, value) {
   var el = document.getElementById(id);
   if (!el) { console.warn('عنصر با آی‌دی "' + id + '" پیدا نشد.'); return; }
   el.textContent = value;
 }
+
 function showScreen(id) {
   document.querySelectorAll('.screen').forEach(function (s) { s.classList.toggle('active', s.id === id); });
 }
+
 function showToast(msg, isErr) {
   var t = document.getElementById('toast');
   if (!t) return;
@@ -39,7 +43,7 @@ function showToast(msg, isErr) {
   setTimeout(function () { t.className = 'toast'; }, 2200);
 }
 
-// ===================== ارتباط با سرور (JSONP - بدون نیاز به CORS) =====================
+// ===================== API Call (JSONP) =====================
 var jsonpCounter = 0;
 function apiCall(action, params) {
   return new Promise(function (resolve, reject) {
@@ -140,7 +144,7 @@ function enterApp() {
   renderRecentList();
 }
 
-// ===================== جست‌وجو (دستی یا اسکن‌شده - دقیقاً یک مسیر مشترک) =====================
+// ===================== جست‌وجو =====================
 var searchInput = document.getElementById('searchInput');
 if (searchInput) {
   searchInput.addEventListener('keydown', function (e) {
@@ -196,7 +200,7 @@ function renderResultsList(results, q) {
   area.innerHTML = html;
 }
 
-// ===================== جزئیات کامل کالا (مثل صفحه‌ی جست‌وجوی سامانه‌ی اصلی) =====================
+// ===================== جزئیات کالا =====================
 function openItemDetail(code) {
   var area = document.getElementById('resultArea');
   area.innerHTML = '<div class="lookup-loading"><div class="spinner"></div> در حال دریافت مشخصات کالا...</div>';
@@ -221,21 +225,16 @@ function renderItemDetail(item) {
   var images = item.images || [];
   var fields = item.fields || [];
 
-  var galleryHtml;
-  if (images.length) {
-    galleryHtml = '<div class="item-gallery">' + images.map(function (src) {
+  var galleryHtml = images.length ?
+    '<div class="item-gallery">' + images.map(function (src) {
       return '<img src="' + escapeHtml(src) + '" onerror="this.style.display=\'none\'">';
-    }).join('') + '</div>';
-  } else {
-    galleryHtml = '<div class="item-noimg">تصویری ثبت نشده</div>';
-  }
+    }).join('') + '</div>' :
+    '<div class="item-noimg">تصویری ثبت نشده</div>';
 
-  var fieldsHtml = '';
-  if (fields.length) {
-    fieldsHtml = '<div class="item-fields">' + fields.map(function (f) {
+  var fieldsHtml = fields.length ?
+    '<div class="item-fields">' + fields.map(function (f) {
       return '<div class="item-field"><div class="k">' + escapeHtml(f[0]) + '</div><div class="v">' + escapeHtml(f[1]) + '</div></div>';
-    }).join('') + '</div>';
-  }
+    }).join('') + '</div>' : '';
 
   var html =
     '<div class="item-detail-card">' +
@@ -302,8 +301,6 @@ function submitCount() {
     document.getElementById('searchInput').value = '';
     lastSearchResults = null;
     renderRecentList();
-    // مستقیم دوربین را برای اسکن کالای بعدی دوباره باز کن (چرخه‌ی سریع: اسکن → ثبت → بعدی)
-    setTimeout(function () { openScanner(); }, 650);
   }).catch(function (err) {
     btn.disabled = false; btn.textContent = 'ثبت و بازگشت به جست‌وجو';
     showToast(err.message, true);
@@ -347,129 +344,72 @@ function renderRecentList() {
   area.innerHTML = html;
 }
 
-// ===================== اسکنر (فقط با زدن آیکون دوربین باز می‌شود) =====================
-// اگر مرورگر از BarcodeDetector (همان موتور تشخیصِ خودِ دوربین گوشی/Google Lens)
-// پشتیبانی کند، همان استفاده می‌شود — چون برای QRهای چگال یا کمی زاویه‌دار
-// بسیار قوی‌تر از کتابخانه‌ی جاوااسکریپتی jsQR است. در غیر این صورت (مثلاً
-// سافاری آیفون که هنوز این API را ندارد)، به‌صورت خودکار به html5-qrcode برمی‌گردد.
+// ===================== اسکنر حرفه‌ای =====================
 var html5QrCode = null;
 var scannerRunning = false;
-var scannerMode = null; // 'native' یا 'html5qr'
-var nativeDetector = null, nativeStream = null, nativeVideoEl = null, nativeRAF = null;
-// فقط کیوآرکد (نه بارکدهای ۱بعدی) — هم سریع‌تر تشخیص می‌دهد و هم روی مرورگرهای
-// بیشتری بدون خطا کار می‌کند (بعضی گوشی‌ها همه‌ی فرمت‌های بارکد را در
-// BarcodeDetector پشتیبانی نمی‌کنند و همین باعث شکست کامل تشخیص می‌شد)
-var SCAN_FORMATS = ['qr_code'];
 
 function openScanner() {
   document.getElementById('scannerOverlay').classList.add('open');
   document.getElementById('camError').style.display = 'none';
-  if ('BarcodeDetector' in window) {
-    openNativeScanner();
-  } else {
-    openHtml5QrScanner();
-  }
+  startScanner();
 }
 
-function openNativeScanner() {
-  try {
-    nativeDetector = new BarcodeDetector({ formats: SCAN_FORMATS });
-  } catch (e) {
-    openHtml5QrScanner(); // این مرورگر فرمت‌های خواسته‌شده را پشتیبانی نمی‌کند؛ به روش قبلی برگرد
-    return;
-  }
+function startScanner() {
   var reader = document.getElementById('qrReader');
   reader.innerHTML = '';
-  nativeVideoEl = document.createElement('video');
-  nativeVideoEl.setAttribute('playsinline', 'true');
-  nativeVideoEl.muted = true;
-  nativeVideoEl.style.cssText = 'width:100%;height:100%;object-fit:cover;';
-  reader.appendChild(nativeVideoEl);
 
-  navigator.mediaDevices.getUserMedia({
-    video: {
-      facingMode: { ideal: 'environment' },
-      width: { ideal: 1920 },
-      height: { ideal: 1920 },
-      advanced: [{ focusMode: 'continuous' }]
-    }
-  }).then(function (stream) {
-    nativeStream = stream;
-    nativeVideoEl.srcObject = stream;
-    return new Promise(function (resolve) {
-      nativeVideoEl.onloadedmetadata = function () { resolve(nativeVideoEl.play()); };
+  if (!html5QrCode) {
+    html5QrCode = new Html5Qrcode("qrReader", {
+      experimentalFeatures: { useBarCodeDetectorIfSupported: true }
     });
-  }).then(function () {
-    scannerMode = 'native';
-    scannerRunning = true;
-    nativeScanLoop();
-  }).catch(function () {
-    openHtml5QrScanner(); // اگر دسترسی مستقیم به دوربین گیر نکرد، روش دوم را امتحان کن
-  });
-}
-
-function nativeScanLoop() {
-  if (scannerMode !== 'native' || !scannerRunning) return;
-  nativeDetector.detect(nativeVideoEl).then(function (codes) {
-    if (codes && codes.length) {
-      onCodeDetected(codes[0].rawValue);
-      return;
-    }
-    nativeRAF = requestAnimationFrame(nativeScanLoop);
-  }).catch(function () {
-    nativeRAF = requestAnimationFrame(nativeScanLoop);
-  });
-}
-
-function openHtml5QrScanner() {
-  scannerMode = 'html5qr';
-  var reader = document.getElementById('qrReader');
-  reader.innerHTML = '';
-  if (!html5QrCode) html5QrCode = new Html5Qrcode('qrReader', { experimentalFeatures: { useBarCodeDetectorIfSupported: true } });
-
-  // کادر اسکن حالا مربعی و متناسب با اندازه‌ی صفحه است (نه یک مستطیل کشیده که
-  // باعث می‌شد کیوآرکد مربعی به‌سختی و از فاصله‌ی دور داخلش جا شود)
-  function computeQrbox(viewfinderWidth, viewfinderHeight) {
-    var minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-    var size = Math.floor(minEdge * 0.85);
-    return { width: size, height: size };
   }
+
+  const qrboxFunction = (viewfinderWidth, viewfinderHeight) => {
+    const minEdge = Math.min(viewfinderWidth, viewfinderHeight) * 0.82;
+    return { width: minEdge, height: minEdge };
+  };
+
+  const config = {
+    fps: 18,
+    qrbox: qrboxFunction,
+    aspectRatio: 1.0,
+    showTorchButton: true,
+    showZoomSlider: true,
+    defaultZoomValueIfSupported: 1.0,
+    rememberLastUsedCamera: true,
+    videoConstraints: {
+      facingMode: "environment",
+      width: { ideal: 1280 },
+      height: { ideal: 720 }
+    }
+  };
 
   html5QrCode.start(
-    { facingMode: 'environment' },
-    {
-      fps: 12,
-      qrbox: computeQrbox,
-      aspectRatio: 1.0,
-      formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
-      videoConstraints: {
-        facingMode: 'environment',
-        width: { ideal: 1920 },
-        height: { ideal: 1920 },
-        advanced: [{ focusMode: 'continuous' }]
-      }
-    },
-    function onScanSuccess(decodedText) {
-      onCodeDetected(decodedText);
-    },
-    function onScanFailure() {}
-  ).then(function () {
+    { facingMode: "environment" },
+    config,
+    onScanSuccess,
+    onScanFailure
+  ).then(() => {
     scannerRunning = true;
-  }).catch(function () {
+  }).catch(err => {
+    console.error(err);
     document.getElementById('camError').style.display = 'flex';
   });
 }
 
-function closeScanner() {
-  document.getElementById('scannerOverlay').classList.remove('open');
-  scannerRunning = false;
-  if (nativeRAF) { cancelAnimationFrame(nativeRAF); nativeRAF = null; }
-  if (nativeStream) { nativeStream.getTracks().forEach(function (t) { t.stop(); }); nativeStream = null; }
-  if (nativeVideoEl) { try { nativeVideoEl.pause(); } catch (e) {} nativeVideoEl.srcObject = null; nativeVideoEl = null; }
-  if (scannerMode === 'html5qr' && html5QrCode) {
-    html5QrCode.stop().catch(function () {});
-  }
-  scannerMode = null;
+function onScanSuccess(decodedText) {
+  if (window.lastScanTime && (Date.now() - window.lastScanTime) < 1800) return;
+  window.lastScanTime = Date.now();
+
+  var code = extractItemCode(decodedText);
+  closeScanner();
+  document.getElementById('searchInput').value = code;
+  doSearch();
+  if (navigator.vibrate) navigator.vibrate(50);
+}
+
+function onScanFailure(error) {
+  if (error && typeof error === "string" && error.includes("No QR code")) return;
 }
 
 function extractItemCode(raw) {
@@ -480,19 +420,15 @@ function extractItemCode(raw) {
       if (idParam) return idParam;
     } catch (e) {}
   }
-  return raw;
+  return raw.trim();
 }
 
-var lastScanned = null, lastScanTime = 0;
-function onCodeDetected(raw) {
-  var now = Date.now();
-  if (raw === lastScanned && (now - lastScanTime) < 2500) return;
-  lastScanned = raw; lastScanTime = now;
-  var code = extractItemCode(raw);
-  closeScanner();
-  // دقیقاً همان مسیر جست‌وجوی دستی: کد اسکن‌شده در کادر جست‌وجو گذاشته و جست‌وجو می‌شود
-  document.getElementById('searchInput').value = code;
-  doSearch();
+function closeScanner() {
+  if (html5QrCode) {
+    html5QrCode.stop().catch(function(){});
+  }
+  document.getElementById('scannerOverlay').classList.remove('open');
+  scannerRunning = false;
 }
 
 // ===================== شروع برنامه =====================
