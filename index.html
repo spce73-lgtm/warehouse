@@ -143,7 +143,7 @@
   #qrReader video{width:100%!important;height:100%!important;object-fit:cover;}
   .scan-frame{
     position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
-    width:min(84vw,360px);height:min(84vw,360px);
+    width:min(78vw,320px);height:min(45vw,180px);
     border:3px solid rgba(255,255,255,.85);border-radius:18px;
     box-shadow:0 0 0 2000px rgba(0,0,0,.4);pointer-events:none;
   }
@@ -218,7 +218,7 @@
     <button class="icon-btn accent" onclick="doSearch()" title="جست‌وجو">
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.6" y2="16.6"/></svg>
     </button>
-    <button class="icon-btn" onclick="openScanner()" title="اسکن کیوآرکد">
+    <button class="icon-btn" onclick="openScanner()" title="اسکن بارکد">
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2l1-1.6c.3-.5.9-.9 1.5-.9h4c.6 0 1.2.4 1.5.9L16.5 7h2A1.5 1.5 0 0 1 20 8.5v9A1.5 1.5 0 0 1 18.5 19h-13A1.5 1.5 0 0 1 4 17.5v-9Z"/><circle cx="12" cy="13" r="3.2"/></svg>
     </button>
   </div>
@@ -234,7 +234,7 @@
   <button class="scan-close" onclick="closeScanner()">✕</button>
   <div id="qrReader"></div>
   <div class="scan-frame"></div>
-  <div class="scan-hint">کیوآرکد کالا را داخل کادر بگیرید</div>
+  <div class="scan-hint">بارکد یا کیوآرکد کالا را داخل کادر بگیرید</div>
   <div class="cam-error" id="camError" style="display:none;">
     <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M1 1l22 22M9.9 4.24A9.12 9.12 0 0 1 12 4a9.87 9.87 0 0 1 8.42 4.73 10.24 10.24 0 0 1 1.18 3.27 10.16 10.16 0 0 1-1.06 3.03M6.61 6.61A9.9 9.9 0 0 0 2.4 12a9.87 9.87 0 0 0 3.07 4.19"/><path d="M14.12 14.12A3 3 0 0 1 9.88 9.88"/><circle cx="12" cy="12" r="9"/></svg>
     <h3>دسترسی به دوربین ممکن نشد</h3>
