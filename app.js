@@ -14,33 +14,40 @@ var state = {
 };
 
 var recentItems = [];
+var html5QrCode = null;
 
 // Utility
 function escapeHtml(s) { return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-function showToast(msg, err) {
+function showToast(msg, isErr) {
   var t = document.getElementById('toast');
-  t.textContent = msg;
-  t.className = 'toast show' + (err ? ' err' : ' ok');
-  setTimeout(() => t.className = 'toast', 2000);
+  if (t) {
+    t.textContent = msg;
+    t.className = 'toast show' + (isErr ? ' err' : ' ok');
+    setTimeout(() => t.className = 'toast', 2200);
+  }
 }
 
-// API
+// API Call
 var jsonpCounter = 0;
 function apiCall(action, params) {
   return new Promise((resolve, reject) => {
-    var cb = 'cb' + Date.now();
+    var cbName = 'whCb' + Date.now();
     var script = document.createElement('script');
-    window[cb] = d => { delete window[cb]; script.remove(); resolve(d); };
-    var qs = `action=${action}&callback=${cb}`;
-    Object.keys(params||{}).forEach(k => qs += `&${k}=${encodeURIComponent(params[k])}`);
+    window[cbName] = (data) => {
+      delete window[cbName];
+      script.remove();
+      resolve(data);
+    };
+    var qs = `action=${encodeURIComponent(action)}&callback=${cbName}`;
+    Object.keys(params || {}).forEach(k => {
+      if (params[k] != null) qs += `&${k}=${encodeURIComponent(params[k])}`;
+    });
     script.src = state.serverUrl + '?' + qs;
     document.body.appendChild(script);
   });
 }
 
-// ساده‌سازی کامل اسکنر
-var html5QrCode = null;
-
+// ===================== اسکنر نهایی (بهینه شده) =====================
 function openScanner() {
   document.getElementById('scannerOverlay').classList.add('open');
   document.getElementById('camError').style.display = 'none';
@@ -48,44 +55,59 @@ function openScanner() {
   var reader = document.getElementById('qrReader');
   reader.innerHTML = '';
 
-  html5QrCode = new Html5Qrcode("qrReader");
+  html5QrCode = new Html5Qrcode("qrReader", { experimentalFeatures: { useBarCodeDetectorIfSupported: true } });
+
+  const config = {
+    fps: 25,
+    qrbox: { width: 300, height: 300 },
+    aspectRatio: 1.0,
+    showTorchButton: true,
+    showZoomSlider: true,
+    defaultZoomValueIfSupported: 1.5,
+    videoConstraints: {
+      facingMode: "environment",
+      width: { ideal: 1280 },
+      height: { ideal: 720 }
+    }
+  };
 
   html5QrCode.start(
     { facingMode: "environment" },
-    {
-      fps: 20,
-      qrbox: 280,
-      aspectRatio: 1.0,
-      showTorchButton: true,
-      showZoomSlider: true
-    },
+    config,
     (decodedText) => {
       closeScanner();
       document.getElementById('searchInput').value = decodedText.trim();
       doSearch();
-      if (navigator.vibrate) navigator.vibrate([100]);
+      if (navigator.vibrate) navigator.vibrate(80);
+      showToast("✅ کد خوانده شد", false);
     },
-    (error) => {}
-  ).catch(e => {
-    console.error(e);
+    () => {}
+  ).catch(err => {
+    console.error("Camera error:", err);
     document.getElementById('camError').style.display = 'flex';
   });
 }
 
 function closeScanner() {
-  if (html5QrCode) html5QrCode.stop().catch(()=>{});
+  if (html5QrCode) {
+    html5QrCode.stop().catch(() => {});
+  }
   document.getElementById('scannerOverlay').classList.remove('open');
 }
 
 function doSearch() {
   var q = document.getElementById('searchInput').value.trim();
-  if (q) showToast('جستجو: ' + q);
-  // بقیه کد جستجو را بعدا اضافه کن
+  if (q) {
+    showToast("جستجو برای: " + q);
+    // اینجا کد جستجوی اصلی خودت رو اضافه کن
+  }
 }
 
-// شروع
-if (state.token) {
-  // enterApp
+// شروع برنامه
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js');
+if (state.serverUrl) document.getElementById('serverUrlInput').value = state.serverUrl;
+if (state.token && state.username) {
+  // enterApp();
 } else {
   showScreen('loginScreen');
 }
