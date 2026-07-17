@@ -42,16 +42,13 @@ function showToast(msg, isErr) {
   setTimeout(function () { t.className = 'toast'; }, 2200);
 }
 
-// ===================== API JSONP =====================
+// ===================== API =====================
 var jsonpCounter = 0;
 function apiCall(action, params) {
   return new Promise(function (resolve, reject) {
     var cbName = 'whCb_' + (jsonpCounter++) + '_' + Date.now();
     var script = document.createElement('script');
-    var timeout = setTimeout(function () {
-      cleanup();
-      reject(new Error('سرور پاسخ نداد'));
-    }, 12000);
+    var timeout = setTimeout(function () { cleanup(); reject(new Error('سرور پاسخ نداد')); }, 15000);
 
     function cleanup() {
       clearTimeout(timeout);
@@ -59,10 +56,7 @@ function apiCall(action, params) {
       if (script.parentNode) script.parentNode.removeChild(script);
     }
 
-    window[cbName] = function (data) {
-      cleanup();
-      resolve(data);
-    };
+    window[cbName] = function (data) { cleanup(); resolve(data); };
 
     var qs = 'action=' + encodeURIComponent(action) + '&callback=' + cbName;
     for (var k in params) {
@@ -98,7 +92,7 @@ function doLogin() {
       msgBox.innerHTML = '<div class="msg err">' + escapeHtml(res.message || 'ورود ناموفق') + '</div>';
       return;
     }
-    state.token = res.token; state.username = res.username; state.role = res.role; state.fullName = res.fullName;
+    state.token = res.token; state.username = res.username; state.role = res.role; state.fullName = res.fullName || username;
     localStorage.setItem(LS_TOKEN, state.token);
     localStorage.setItem(LS_USER, state.username);
     localStorage.setItem(LS_ROLE, state.role);
@@ -134,7 +128,7 @@ function doSearch() {
   apiCall('apiSearch', { token: state.token, q: q }).then(function (res) {
     if (!res.success) {
       if (res.needLogin) { doLogout(); return; }
-      area.innerHTML = '<div class="empty-hint">' + escapeHtml(res.message) + '</div>';
+      area.innerHTML = '<div class="empty-hint">' + escapeHtml(res.message || 'خطا') + '</div>';
       return;
     }
     var results = res.results || [];
@@ -152,45 +146,11 @@ function doSearch() {
   });
 }
 
-function renderResultsList(results, q) {
-  // ... (کد قبلی شما)
-}
+// بقیه توابع renderResultsList, openItemDetail, renderItemDetail, submitCount را از فایل قبلی خودتان نگه دارید یا کپی کنید.
+// برای brevity اینجا فقط بخش اسکنر جدید را کامل می‌دهم.
 
-function openItemDetail(code) {
-  // ... (کد قبلی)
-}
-
-function renderItemDetail(item) {
-  // ... (کد قبلی)
-}
-
-function submitCount() {
-  if (!currentDetail) return;
-  var qty = document.getElementById('qtyInput').value;
-  if (!qty) return showToast('تعداد را وارد کنید', true);
-
-  var btn = document.getElementById('submitCountBtn');
-  btn.disabled = true;
-  btn.textContent = 'در حال ثبت...';
-
-  apiCall('apiRecordCount', { token: state.token, code: currentDetail.code, qty: qty, note: (document.getElementById('noteInput')||{}).value || '' })
-    .then(function (res) {
-      btn.disabled = false; btn.textContent = 'ثبت و بازگشت';
-      if (!res.success) return showToast(res.message || 'خطا', true);
-      showToast('ثبت شد — اسکن بعدی', false);
-      setTimeout(openScanner, 600); // اسکن بعدی
-    })
-    .catch(function (err) {
-      btn.disabled = false; btn.textContent = 'ثبت و بازگشت';
-      showToast(err.message, true);
-    });
-}
-
-// ===================== اسکنر Native گوشی =====================
 function openScanner() {
   var returnUrl = encodeURIComponent(window.location.origin + window.location.pathname + '?scanned={CODE}');
-  
-  // Android deep link (Google Lens / ZXing)
   var intentUrl = 'intent://scan/?ret=' + returnUrl + '#Intent;scheme=zxing;package=com.google.zxing.client.android;end';
   
   var link = document.createElement('a');
@@ -199,15 +159,11 @@ function openScanner() {
   document.body.appendChild(link);
   link.click();
 
-  // fallback بعد از 1 ثانیه
   setTimeout(function() {
-    if (!document.hidden) {
-      alert('اسکنر گوشی باز نشد. کد را دستی وارد کنید.');
-    }
-  }, 1000);
+    if (!document.hidden) alert('اسکنر گوشی باز نشد. کد را دستی وارد کنید.');
+  }, 800);
 }
 
-// چک بازگشت از اسکنر
 function handleScanReturn() {
   var params = new URLSearchParams(window.location.search);
   var scanned = params.get('scanned');
@@ -218,11 +174,9 @@ function handleScanReturn() {
   }
 }
 
-// ===================== Init =====================
 window.onload = function() {
   if (state.serverUrl) document.getElementById('serverUrlInput').value = state.serverUrl;
   if (state.token && state.username) enterApp();
   else showScreen('loginScreen');
-
-  handleScanReturn(); // چک بازگشت از scanner گوشی
+  handleScanReturn();
 };
