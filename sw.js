@@ -1,7 +1,9 @@
-// اول شبکه، بعد کش (برای اینکه به‌روزرسانی‌های آینده همیشه فوری اعمال شود).
-// نسخه‌ی کش عوض شد چون معماری اپ کامل تغییر کرد (بدون اسکنر داخلی).
-var CACHE_NAME = 'wh-scanner-shell-v3';
-var SHELL_FILES = ['./', './index.html', './style.css', './app.js', './manifest.json'];
+// نسخه‌ی اصلاح‌شده: به‌جای «اول کش»، حالا «اول شبکه» است — یعنی هر بار که
+// اینترنت وصل باشد، همیشه آخرین نسخه‌ی index.html و app.js از سرور گرفته
+// می‌شود؛ کش فقط برای زمانی است که اینترنت قطع باشد (حالت آفلاین).
+// همچنین نسخه‌ی کش عوض شد تا کش قدیمی و گیرکرده‌ی قبلی کامل پاک شود.
+var CACHE_NAME = 'wh-scanner-shell-v2';
+var SHELL_FILES = ['./', './index.html', './app.js', './style.css', './manifest.json'];
 
 self.addEventListener('install', function (event) {
   event.waitUntil(
@@ -26,9 +28,11 @@ self.addEventListener('fetch', function (event) {
 
   event.respondWith(
     fetch(event.request).then(function (networkResponse) {
+      // آخرین نسخه از شبکه رسید؛ همان را نشان بده و نسخه‌ی کش را هم به‌روز کن
       caches.open(CACHE_NAME).then(function (cache) { cache.put(event.request, networkResponse.clone()); });
       return networkResponse;
     }).catch(function () {
+      // اینترنت قطع بود؛ به‌عنوان آخرین راه‌حل از کش قدیمی استفاده کن
       return caches.match(event.request);
     })
   );
