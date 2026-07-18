@@ -11,7 +11,6 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="اسکنر انبار">
 <link rel="apple-touch-icon" href="icon-192.png">
-
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -28,7 +27,7 @@
 
     <div class="server-field">
       <label style="display:block;font-size:12.5px;font-weight:700;color:#5a6472;margin-bottom:6px;">آدرس سامانه (فقط بار اول)</label>
-      <input type="text" id="serverUrlInput" placeholder="https://script.google.com/macros/s/XXXXX/exec">
+      <input type="text" id="serverUrlInput" placeholder="https://script.google.com/macros/s/XXXXX/exec" autocomplete="off">
       <small>این آدرس همان لینک وب‌اپ گوگل‌شیت شماست؛ یک‌بار وارد کنید، ذخیره می‌شود.</small>
     </div>
 
@@ -55,40 +54,20 @@
   </div>
 
   <div class="search-row">
-    <input type="text" id="searchInput" placeholder="کد یا نام کالا را وارد یا اسکن کنید..." inputmode="search">
+    <input type="text" id="searchInput" placeholder="کد یا نام کالا را وارد کنید..." inputmode="search">
     <button class="icon-btn accent" onclick="doSearch()" title="جست‌وجو">
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.6" y2="16.6"/></svg>
-    </button>
-    <button class="icon-btn" onclick="openScanner()" title="اسکن کیوآرکد">
-      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2l1-1.6c.3-.5.9-.9 1.5-.9h4c.6 0 1.2.4 1.5.9L16.5 7h2A1.5 1.5 0 0 1 20 8.5v9A1.5 1.5 0 0 1 18.5 19h-13A1.5 1.5 0 0 1 4 17.5v-9Z"/><circle cx="12" cy="13" r="3.2"/></svg>
     </button>
   </div>
 
   <div id="resultArea">
     <div class="section-title">آخرین موارد ثبت‌شده در این جلسه</div>
-    <div id="recentList"><div class="empty-hint">هنوز چیزی ثبت نشده؛ کد کالا را تایپ یا اسکن کنید.</div></div>
-  </div>
-</div>
-
-<!-- ============ لایه‌ی دوربین ============ -->
-<div id="scannerOverlay">
-  <button class="scan-close" onclick="closeScanner()">✕</button>
-  <button class="torch-btn" id="torchBtn" onclick="toggleTorch()" title="چراغ‌قوه">
-    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><path d="M9 18h6M10 22h4M12 2a6 6 0 0 0-4 10.5c.6.6 1 1.5 1 2.5h6c0-1 .4-1.9 1-2.5A6 6 0 0 0 12 2z"/></svg>
-  </button>
-  <div id="qrReader"></div>
-  <div class="scan-frame"></div>
-  <div class="scan-hint">کیوآرکد کالا را داخل کادر بگیرید</div>
-  <div class="cam-error" id="camError" style="display:none;">
-    <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M1 1l22 22M9.9 4.24A9.12 9.12 0 0 1 12 4a9.87 9.87 0 0 1 8.42 4.73 10.24 10.24 0 0 1 1.18 3.27 10.16 10.16 0 0 1-1.06 3.03M6.61 6.61A9.9 9.9 0 0 0 2.4 12a9.87 9.87 0 0 0 3.07 4.19"/><path d="M14.12 14.12A3 3 0 0 1 9.88 9.88"/><circle cx="12" cy="12" r="9"/></svg>
-    <h3>دسترسی به دوربین ممکن نشد</h3>
-    <p id="camErrorText">اجازه‌ی دسترسی دوربین را در مرورگر بررسی کنید، یا کد را دستی تایپ کنید.</p>
+    <div id="recentList"><div class="empty-hint">دوربین گوشی را روی کیوآرکد کالا بگیرید، یا کد/نام را اینجا تایپ کنید.</div></div>
   </div>
 </div>
 
 <div class="toast" id="toast"></div>
 
-<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
