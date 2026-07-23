@@ -1,127 +1,73 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="fa" dir="rtl">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="theme-color" content="#0f4c81">
-  <title>اسکنر انبارگردانی</title>
-  <link rel="manifest" href="manifest.json">
-  <link rel="apple-touch-icon" href="icon-192.png">
-  <link rel="stylesheet" href="style.css">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>اسکنر انبارگردانی</title>
+
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0f4c81">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="اسکنر انبار">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-  <!-- صفحه ورود -->
-  <div class="screen active" id="loginScreen">
-    <div class="login-box">
-      <div class="login-logo">
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
-          <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
-          <line x1="12" y1="22.08" x2="12" y2="12"></line>
-        </svg>
-      </div>
-      <div class="login-title">اسکنر انبارگردانی</div>
-      <div class="login-sub">ورود با همان نام کاربری سامانه انبار</div>
-      
-      <div id="loginMsg"></div>
-      
-      <div class="field server-field">
-        <label>آدرس سامانه (فقط بار اول)</label>
-        <input type="url" id="serverUrlInput" placeholder="https://script.google.com/macros/s/.../exec">
-        <small>این آدرس همان لینک وب‌اپ گوگل‌شیت شماست؛ یک‌بار وارد کنید، ذخیره می‌شود.</small>
-      </div>
-      
-      <div class="field">
-        <label>نام کاربری</label>
-        <input type="text" id="loginUsername" autocomplete="username">
-      </div>
-      
-      <div class="field">
-        <label>رمز عبور</label>
-        <input type="password" id="loginPassword" autocomplete="current-password">
-      </div>
-      
-      <button class="btn btn-primary" id="loginBtn" onclick="doLogin()">ورود</button>
+<!-- ============ صفحه‌ی ورود ============ -->
+<div class="screen active" id="loginScreen">
+  <div class="login-box">
+    <div class="login-logo">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><line x1="7" y1="12" x2="17" y2="12"/></svg>
     </div>
+    <div class="login-title">اسکنر انبارگردانی</div>
+    <div class="login-sub">ورود با همان نام کاربری سامانه انبار</div>
+    <div id="loginMsg"></div>
+
+    <div class="server-field">
+      <label style="display:block;font-size:12.5px;font-weight:700;color:#5a6472;margin-bottom:6px;">آدرس سامانه (فقط بار اول)</label>
+      <input type="text" id="serverUrlInput" placeholder="https://script.google.com/macros/s/XXXXX/exec" autocomplete="off">
+      <small>این آدرس همان لینک وب‌اپ گوگل‌شیت شماست؛ یک‌بار وارد کنید، ذخیره می‌شود.</small>
+    </div>
+
+    <div class="field">
+      <label>نام کاربری</label>
+      <input type="text" id="loginUsername" autocomplete="username">
+    </div>
+    <div class="field">
+      <label>رمز عبور</label>
+      <input type="password" id="loginPassword" autocomplete="current-password">
+    </div>
+    <button class="btn btn-primary" id="loginBtn" onclick="doLogin()">ورود</button>
+  </div>
+</div>
+
+<!-- ============ صفحه‌ی اصلی (جست‌وجو + نتایج + جزئیات) ============ -->
+<div class="screen" id="mainScreen">
+  <div class="top-strip">
+    <button class="icon-btn" onclick="doLogout()" title="خروج">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+    </button>
+    <div class="who"><span id="whoLabel">—</span><span id="whoSub"></span></div>
+    <div style="width:36px;"></div>
   </div>
 
-  <!-- صفحه اصلی -->
-  <div class="screen" id="mainScreen">
-    <div class="top-strip">
-      <div class="who">
-        <span id="whoLabel"></span>
-        <span id="whoSub"></span>
-      </div>
-      <button class="icon-btn" id="importBtn" onclick="showImportScreen()" title="آپدیت موجودی" style="display:none;">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-          <polyline points="7 10 12 15 17 10"></polyline>
-          <line x1="12" y1="15" x2="12" y2="3"></line>
-        </svg>
-      </button>
-      <button class="icon-btn" onclick="doLogout()" title="خروج">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
-          <polyline points="16 17 21 12 16 7"></polyline>
-          <line x1="21" y1="12" x2="9" y2="12"></line>
-        </svg>
-      </button>
-    </div>
-    
-    <div class="search-row">
-      <input type="text" id="searchInput" placeholder="کد یا نام کالا را جست‌وجو کنید..." autocomplete="off">
-      <button class="icon-btn accent" onclick="doSearch()">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="11" cy="11" r="8"></circle>
-          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-        </svg>
-      </button>
-    </div>
-    
-    <div id="resultArea"></div>
+  <div class="search-row">
+    <input type="text" id="searchInput" placeholder="کد یا نام کالا را وارد کنید..." inputmode="search">
+    <button class="icon-btn accent" onclick="doSearch()" title="جست‌وجو">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.6" y2="16.6"/></svg>
+    </button>
   </div>
 
-  <!-- صفحه آپدیت موجودی -->
-  <div class="screen" id="importScreen">
-    <div class="top-strip">
-      <div class="who">
-        <span id="importWhoLabel"></span>
-        <span>آپدیت موجودی از اکسل</span>
-      </div>
-      <button class="icon-btn" onclick="showScreen('mainScreen')">✕</button>
-    </div>
-    
-    <div id="importArea" style="flex:1;overflow-y:auto;padding:14px;">
-      <div class="section-title">مرحله ۱: آپلود فایل اکسل</div>
-      <div class="field">
-        <label>فایل اکسل (.xlsx, .xls, .csv)</label>
-        <input type="file" id="importFileInput" accept=".xlsx,.xls,.csv" style="padding:10px;">
-      </div>
-      
-      <div id="importPreviewArea" style="display:none;">
-        <div class="section-title">مرحله ۲: پیش‌نمایش و تأیید نگاشت</div>
-        <div id="importMappingArea"></div>
-        
-        <div class="section-title" style="margin-top:20px;">پیش‌نمایش ۱۰ ردیف اول</div>
-        <div id="importPreviewTable" style="overflow-x:auto;"></div>
-        
-        <div id="importStats" style="margin:14px 0;padding:12px;background:var(--surface);border-radius:10px;font-size:13px;"></div>
-        
-        <button class="btn btn-primary" id="importConfirmBtn" onclick="confirmImport()">شروع همگام‌سازی</button>
-      </div>
-      
-      <div id="importResultArea" style="display:none;">
-        <div class="section-title">نتیجه‌ی همگام‌سازی</div>
-        <div id="importResultContent"></div>
-        <button class="btn btn-secondary" onclick="resetImport()" style="margin-top:14px;">آپلود فایل جدید</button>
-      </div>
-    </div>
+  <div id="resultArea">
+    <div class="section-title">آخرین موارد ثبت‌شده در این جلسه</div>
+    <div id="recentList"><div class="empty-hint">دوربین گوشی را روی کیوآرکد کالا بگیرید، یا کد/نام را اینجا تایپ کنید.</div></div>
   </div>
+</div>
 
-  <div class="toast" id="toast"></div>
+<div class="toast" id="toast"></div>
 
-  <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
-  <script src="app.js"></script>
+<script src="app.js"></script>
 </body>
 </html>
