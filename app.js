@@ -3,12 +3,14 @@
 // کیوآرکدها حالا مستقیم لینک همین برنامه‌اند (?id=CODE)؛ اسکن با دوربین
 // پیش‌فرض خودِ گوشی (هر برند) انجام می‌شود، نه با یک اسکنر داخل صفحه.
 // =====================================================================
+
 // ===================== حافظه‌ی محلی =====================
 var LS_SERVER = 'wh_scanner_server_url';
 var LS_TOKEN = 'wh_scanner_token';
 var LS_USER = 'wh_scanner_username';
 var LS_ROLE = 'wh_scanner_role';
 var LS_FULLNAME = 'wh_scanner_fullname';
+
 var state = {
   serverUrl: localStorage.getItem(LS_SERVER) || '',
   token: localStorage.getItem(LS_TOKEN) || '',
@@ -16,29 +18,27 @@ var state = {
   role: localStorage.getItem(LS_ROLE) || '',
   fullName: localStorage.getItem(LS_FULLNAME) || ''
 };
+
 var recentItems = [];
-var currentDetail = null;
-var lastSearchResults = null;
+var currentDetail = null;      // آخرین کالایی که جزئیاتش باز شده
+var lastSearchResults = null;  // آخرین نتایج جست‌وجو (برای «بازگشت به جست‌وجو»)
 var lastSearchQuery = '';
-var pendingId = null;
+var pendingId = null;          // شناسه‌ای که از لینک کیوآرکد (?id=) آمده و هنوز باز نشده
 
 // ===================== ابزارهای کمکی =====================
 function escapeHtml(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
-    return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
   });
 }
-
 function setText(id, value) {
   var el = document.getElementById(id);
   if (!el) return;
   el.textContent = value;
 }
-
 function showScreen(id) {
   document.querySelectorAll('.screen').forEach(function (s) { s.classList.toggle('active', s.id === id); });
 }
-
 function showToast(msg, isErr) {
   var t = document.getElementById('toast');
   if (!t) return;
@@ -47,13 +47,14 @@ function showToast(msg, isErr) {
   setTimeout(function () { t.className = 'toast'; }, 2200);
 }
 
+// شناسه‌ی کالا را از URL بردار (وقتی از کیوآرکد باز شده باشد)
 function readIdFromLocation() {
   var params = new URLSearchParams(window.location.search);
   return params.get('id');
 }
-
+// اگر کسی به‌جای کد خام، یک لینک کامل داخل کادر جست‌وجو پیست کرده بود، کد را از آن دربیاور
 function extractItemCode(raw) {
-  if (/^https?:///i.test(raw)) {
+  if (/^https?:\/\//i.test(raw)) {
     try {
       var u = new URL(raw);
       var idParam = u.searchParams.get('id');
@@ -62,7 +63,7 @@ function extractItemCode(raw) {
   }
   return raw;
 }
-
+// بعد از استفاده از id داخل آدرس، آن را از نوار آدرس پاک کن تا با رفرش دوباره تکرار نشود
 function clearIdFromUrl() {
   try {
     var url = new URL(window.location.href);
@@ -71,34 +72,36 @@ function clearIdFromUrl() {
   } catch (e) {}
 }
 
-// ===================== ارتباط با سرور (JSONP) =====================
+// ===================== ارتباط با سرور (JSONP - بدون نیاز به CORS) =====================
 var jsonpCounter = 0;
 function apiCall(action, params) {
   return new Promise(function (resolve, reject) {
     if (!state.serverUrl) { reject(new Error('آدرس سامانه تنظیم نشده.')); return; }
+
     var cbName = 'whCb_' + (jsonpCounter++) + '_' + Date.now();
     var script = document.createElement('script');
     var settled = false;
+
     var timeout = setTimeout(function () {
       if (settled) return;
       settled = true;
       cleanup();
       reject(new Error('سرور در زمان مناسب پاسخ نداد. اتصال اینترنت را بررسی کنید.'));
     }, 15000);
-    
+
     function cleanup() {
       clearTimeout(timeout);
       delete window[cbName];
       if (script.parentNode) script.parentNode.removeChild(script);
     }
-    
+
     window[cbName] = function (data) {
       if (settled) return;
       settled = true;
       cleanup();
       resolve(data || {});
     };
-    
+
     var qs = 'action=' + encodeURIComponent(action) + '&callback=' + cbName;
     for (var k in params) {
       if (params[k] !== undefined && params[k] !== null) qs += '&' + k + '=' + encodeURIComponent(params[k]);
@@ -114,6 +117,7 @@ function apiCall(action, params) {
   });
 }
 
+// اگر پاسخ سرور بگوید نشست منقضی شده، همه‌جا یکسان رفتار کن
 function handleIfSessionExpired(res) {
   if (res && res.needLogin) {
     showToast('نشست شما منقضی شده؛ دوباره وارد شوید.', true);
@@ -131,7 +135,7 @@ function doLogin() {
   var msgBox = document.getElementById('loginMsg');
   var btn = document.getElementById('loginBtn');
   msgBox.innerHTML = '';
-  
+
   if (!serverUrl) {
     msgBox.innerHTML = '<div class="msg err">کادر «آدرس سامانه» خالی است. آدرس Apps Script (.../exec) را پیست کنید.</div>';
     return;
@@ -152,10 +156,10 @@ function doLogin() {
     msgBox.innerHTML = '<div class="msg err">نام کاربری و رمز عبور را وارد کنید.</div>';
     return;
   }
-  
+
   state.serverUrl = serverUrl.replace(/\/$/, '');
   localStorage.setItem(LS_SERVER, state.serverUrl);
-  
+
   btn.disabled = true; btn.textContent = 'در حال ورود...';
   apiCall('apiLogin', { username: username, password: password }).then(function (res) {
     btn.disabled = false; btn.textContent = 'ورود';
@@ -187,12 +191,8 @@ function doLogout() {
 function enterApp() {
   setText('whoLabel', state.fullName || state.username);
   setText('whoSub', state.role || '');
-  
-  if (state.role === 'admin') {
-    document.getElementById('importBtn').style.display = 'flex';
-  }
-  
   showScreen('mainScreen');
+
   if (pendingId) {
     var idToOpen = pendingId;
     pendingId = null;
@@ -215,9 +215,10 @@ function doSearch() {
   var raw = document.getElementById('searchInput').value.trim();
   if (!raw) { showToast('چیزی برای جست‌وجو تایپ کنید', true); return; }
   var q = extractItemCode(raw);
+
   var area = document.getElementById('resultArea');
   area.innerHTML = '<div class="lookup-loading"><div class="spinner"></div> در حال جست‌وجو...</div>';
-  
+
   apiCall('apiSearch', { token: state.token, q: q }).then(function (res) {
     if (handleIfSessionExpired(res)) return;
     if (!res.success) {
@@ -245,15 +246,15 @@ function renderResultsList(results, q) {
   results.forEach(function (r) {
     html +=
       '<div class="result-row" onclick="openItemDetail(\'' + escapeHtml(r.code).replace(/'/g, "\\'") + '\')">' +
-      '<div class="result-thumb">' + (r.thumb ? '<img src="' + escapeHtml(r.thumb) + '">' : '📦') + '</div>' +
-      '<div class="result-info">' +
-      '<div class="result-name">' + escapeHtml(r.name || '(بدون نام)') + '</div>' +
-      '<div class="result-meta">' +
-      '<span class="code-pill-sm">' + escapeHtml(r.code) + '</span>' +
-      (r.category ? '<span>' + escapeHtml(r.category) + '</span>' : '') +
-      (r.qty !== '' && r.qty != null ? '<span>موجودی: ' + escapeHtml(r.qty) + '</span>' : '') +
-      '</div>' +
-      '</div>' +
+        '<div class="result-thumb">' + (r.thumb ? '<img src="' + escapeHtml(r.thumb) + '">' : '📦') + '</div>' +
+        '<div class="result-info">' +
+          '<div class="result-name">' + escapeHtml(r.name || '(بدون نام)') + '</div>' +
+          '<div class="result-meta">' +
+            '<span class="code-pill-sm">' + escapeHtml(r.code) + '</span>' +
+            (r.category ? '<span>' + escapeHtml(r.category) + '</span>' : '') +
+            (r.qty !== '' && r.qty != null ? '<span>موجودی: ' + escapeHtml(r.qty) + '</span>' : '') +
+          '</div>' +
+        '</div>' +
       '</div>';
   });
   html += '</div>';
@@ -273,7 +274,7 @@ function backToSearch() {
 function openItemDetail(code) {
   var area = document.getElementById('resultArea');
   area.innerHTML = '<div class="lookup-loading"><div class="spinner"></div> در حال دریافت مشخصات کالا...</div>';
-  
+
   apiCall('apiLookup', { token: state.token, code: code }).then(function (res) {
     if (handleIfSessionExpired(res)) return;
     if (!res.success) {
@@ -293,8 +294,7 @@ function renderItemDetail(item) {
   var area = document.getElementById('resultArea');
   var images = item.images || [];
   var fields = item.fields || [];
-  var inventory = item.inventory || [];
-  
+
   var galleryHtml;
   if (images.length) {
     galleryHtml = '<div class="item-gallery">' + images.map(function (src) {
@@ -303,52 +303,33 @@ function renderItemDetail(item) {
   } else {
     galleryHtml = '<div class="item-noimg">تصویری ثبت نشده</div>';
   }
-  
+
   var fieldsHtml = '';
   if (fields.length) {
     fieldsHtml = '<div class="item-fields">' + fields.map(function (f) {
       return '<div class="item-field"><div class="k">' + escapeHtml(f[0]) + '</div><div class="v">' + escapeHtml(f[1]) + '</div></div>';
     }).join('') + '</div>';
   }
-  
-  var inventoryHtml = '';
-  if (inventory.length > 0) {
-    inventoryHtml = '<div class="inventory-section"><div class="inventory-title">موجودی تفکیکی انبارها</div>';
-    inventory.forEach(function (inv) {
-      inventoryHtml += '<div class="inventory-row">';
-      inventoryHtml += '<span class="inv-warehouse">🏭 ' + escapeHtml(inv.warehouse_name) + '</span>';
-      inventoryHtml += '<span class="inv-qty">' + inv.qty + ' عدد</span>';
-      inventoryHtml += '</div>';
-    });
-    inventoryHtml += '<div class="inventory-total">';
-    inventoryHtml += '<span>جمع کل موجودی سیستم</span>';
-    inventoryHtml += '<span>' + item.systemQty + ' عدد</span>';
-    inventoryHtml += '</div>';
-    inventoryHtml += '</div>';
-  } else {
-    inventoryHtml = '<div class="sys-qty-row"><span class="k">موجودی سیستم</span><span class="v">' + 
-      (item.systemQty !== '' && item.systemQty != null ? item.systemQty : '—') + '</span></div>';
-  }
-  
+
   var html =
     '<div class="item-detail-card">' +
-    '<button class="back-link" onclick="backToSearch()">‹ بازگشت به جست‌وجو</button>' +
-    galleryHtml +
-    '<div class="item-title">' + escapeHtml(item.name || '(بدون نام)') + '</div>' +
-    '<div class="item-code-pill">' + escapeHtml(item.code) + '</div>' +
-    fieldsHtml +
-    inventoryHtml +
-    '<div class="count-form-title">ثبت شمارش انبارگردانی</div>' +
-    '<div class="qty-row">' +
-    '<button class="qty-step" onclick="stepQty(-1)">−</button>' +
-    '<input type="number" class="qty-input" id="qtyInput" inputmode="decimal" placeholder="0" oninput="updateDiffPreview()">' +
-    '<button class="qty-step" onclick="stepQty(1)">+</button>' +
-    '</div>' +
-    '<div class="diff-preview" id="diffPreview"></div>' +
-    '<textarea class="note-input" id="noteInput" placeholder="توضیحات (اختیاری)..."></textarea>' +
-    '<button class="btn btn-primary" id="submitCountBtn" onclick="submitCount()">ثبت شمارش</button>' +
+      '<button class="back-link" onclick="backToSearch()">‹ بازگشت به جست‌وجو</button>' +
+      galleryHtml +
+      '<div class="item-title">' + escapeHtml(item.name || '(بدون نام)') + '</div>' +
+      '<div class="item-code-pill">' + escapeHtml(item.code) + '</div>' +
+      fieldsHtml +
+      '<div class="sys-qty-row"><span class="k">موجودی سیستم</span><span class="v">' + escapeHtml(item.systemQty !== '' && item.systemQty != null ? item.systemQty : '—') + '</span></div>' +
+      '<div class="count-form-title">ثبت شمارش انبارگردانی</div>' +
+      '<div class="qty-row">' +
+        '<button class="qty-step" onclick="stepQty(-1)">−</button>' +
+        '<input type="number" class="qty-input" id="qtyInput" inputmode="decimal" placeholder="0" oninput="updateDiffPreview()">' +
+        '<button class="qty-step" onclick="stepQty(1)">+</button>' +
+      '</div>' +
+      '<div class="diff-preview" id="diffPreview"></div>' +
+      '<textarea class="note-input" id="noteInput" placeholder="توضیحات (اختیاری)..."></textarea>' +
+      '<button class="btn btn-primary" id="submitCountBtn" onclick="submitCount()">ثبت شمارش</button>' +
     '</div>';
-  
+
   area.innerHTML = html;
   setTimeout(function () {
     var q = document.getElementById('qtyInput');
@@ -386,7 +367,7 @@ function submitCount() {
   var note = (document.getElementById('noteInput') || {}).value || '';
   var btn = document.getElementById('submitCountBtn');
   btn.disabled = true; btn.textContent = 'در حال ثبت...';
-  
+
   apiCall('apiRecordCount', { token: state.token, code: currentDetail.code, qty: qty, note: note }).then(function (res) {
     btn.disabled = false; btn.textContent = 'ثبت شمارش';
     if (handleIfSessionExpired(res)) return;
@@ -403,15 +384,16 @@ function submitCount() {
   });
 }
 
+// صفحه‌ی «آماده برای اسکن بعدی» - چون اسکنر داخلی نداریم، همین‌جا راهنمایی می‌کنیم
+// که دوربین گوشی را روی برچسب بعدی بگیرند؛ جست‌وجوی دستی هم همیشه در دسترس است.
 function renderScanNextScreen() {
   var area = document.getElementById('resultArea');
   area.innerHTML =
     '<div class="scan-ready-banner">' +
-    '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2l1-1.6c.3-.5.9-.9 1.5-.9h4c.6 0 1.2.4 1.5.9L16.5 7h2A1.5 1.5 0 0 1 20 8.5v9A1.5 1.5 0 0 1 18.5 19h-13A1.5 1.5 0 0 1 4 17.5v-9Z"/><circle cx="12" cy="13" r="3.2"/></svg>' +
-    '<div class="title">آماده‌ی اسکن کالای بعدی</div>' +
-    '<div class="sub">دوربین گوشی را روی کیوآرکد بعدی بگیرید — این صفحه خودکار باز می‌شود.<br>یا کد/نام را در کادر بالا تایپ کنید.</div>' +
+      '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2l1-1.6c.3-.5.9-.9 1.5-.9h4c.6 0 1.2.4 1.5.9L16.5 7h2A1.5 1.5 0 0 1 20 8.5v9A1.5 1.5 0 0 1 18.5 19h-13A1.5 1.5 0 0 1 4 17.5v-9Z"/><circle cx="12" cy="13" r="3.2"/></svg>' +
+      '<div class="title">آماده‌ی اسکن کالای بعدی</div>' +
+      '<div class="sub">دوربین گوشی را روی کیوآرکد بعدی بگیرید — این صفحه خودکار باز می‌شود.<br>یا کد/نام را در کادر بالا تایپ کنید.</div>' +
     '</div>';
-  
   var recentHtml = buildRecentListHtml();
   area.innerHTML += '<div class="section-title">آخرین موارد ثبت‌شده در این جلسه</div>' + recentHtml;
   document.getElementById('searchInput').focus();
@@ -448,204 +430,21 @@ function renderRecentList() {
   area.innerHTML = '<div class="section-title">آخرین موارد ثبت‌شده در این جلسه</div>' + buildRecentListHtml();
 }
 
-// ===================== Import از اکسل =====================
-var importData = null;
-var importMapping = null;
-
-function showImportScreen() {
-  if (state.role !== 'admin') {
-    showToast('فقط ادمین مجاز به آپدیت موجودی است', true);
-    return;
-  }
-  
-  setText('importWhoLabel', state.fullName || state.username);
-  showScreen('importScreen');
-  resetImport();
-}
-
-function resetImport() {
-  importData = null;
-  importMapping = null;
-  document.getElementById('importFileInput').value = '';
-  document.getElementById('importPreviewArea').style.display = 'none';
-  document.getElementById('importResultArea').style.display = 'none';
-}
-
-document.getElementById('importFileInput').addEventListener('change', function(e) {
-  var file = e.target.files[0];
-  if (!file) return;
-  
-  var reader = new FileReader();
-  reader.onload = function(e) {
-    try {
-      var data = e.target.result;
-      var workbook = XLSX.read(data, { type: 'binary' });
-      var firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-      var jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
-      
-      importData = jsonData;
-      loadImportPreview();
-    } catch (err) {
-      showToast('خطا در خواندن فایل: ' + err.message, true);
-    }
-  };
-  reader.readAsBinaryString(file);
-});
-
-function loadImportPreview() {
-  apiCall('apiGetImportConfig', { token: state.token }).then(function(res) {
-    if (handleIfSessionExpired(res)) return;
-    
-    var config = res.config || {};
-    apiCall('apiImportPreview', {
-      token: state.token,
-      data: JSON.stringify(importData),
-      config: JSON.stringify(config)
-    }).then(function(res) {
-      if (handleIfSessionExpired(res)) return;
-      
-      if (!res.success) {
-        showToast(res.message || 'خطا در پیش‌نمایش', true);
-        return;
-      }
-      
-      importMapping = res.mapping;
-      renderImportMapping(config, res.mapping);
-      renderImportPreviewTable(res.preview);
-      renderImportStats(res.totalRows);
-      
-      document.getElementById('importPreviewArea').style.display = 'block';
-    }).catch(function(err) {
-      showToast(err.message, true);
-    });
-  });
-}
-
-function renderImportMapping(config, mapping) {
-  var html = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;">';
-  
-  var fields = [
-    { key: 'col_code', label: 'کد کالا' },
-    { key: 'col_name', label: 'نام کالا' },
-    { key: 'col_category', label: 'دسته‌بندی' },
-    { key: 'col_qty', label: 'موجودی' },
-    { key: 'col_warehouse', label: 'انبار' },
-    { key: 'col_image', label: 'تصویر' },
-    { key: 'col_unit', label: 'واحد' },
-    { key: 'col_description', label: 'توضیحات' }
-  ];
-  
-  fields.forEach(function(f) {
-    var colIndex = mapping[f.key];
-    var colName = colIndex !== -1 && importData[0] ? importData[0][colIndex] : '(انتخاب نشده)';
-    html += '<div style="padding:8px;background:var(--surface);border-radius:8px;font-size:12px;">';
-    html += '<div style="color:var(--muted);margin-bottom:4px;">' + f.label + '</div>';
-    html += '<div style="font-weight:700;">' + escapeHtml(colName) + '</div>';
-    html += '</div>';
-  });
-  
-  html += '</div>';
-  document.getElementById('importMappingArea').innerHTML = html;
-}
-
-function renderImportPreviewTable(preview) {
-  if (preview.length === 0) {
-    document.getElementById('importPreviewTable').innerHTML = '<div class="empty-hint">داده‌ای برای نمایش وجود ندارد</div>';
-    return;
-  }
-  
-  var html = '<table style="width:100%;border-collapse:collapse;font-size:11px;">';
-  html += '<thead><tr style="background:var(--accent);color:#fff;">';
-  html += '<th style="padding:8px;text-align:right;">کد</th>';
-  html += '<th style="padding:8px;text-align:right;">نام</th>';
-  html += '<th style="padding:8px;text-align:right;">موجودی</th>';
-  html += '<th style="padding:8px;text-align:right;">انبار</th>';
-  html += '</tr></thead><tbody>';
-  
-  preview.forEach(function(item) {
-    html += '<tr style="border-bottom:1px solid var(--border);">';
-    html += '<td style="padding:6px;">' + escapeHtml(item.code || '') + '</td>';
-    html += '<td style="padding:6px;">' + escapeHtml(item.name || '') + '</td>';
-    html += '<td style="padding:6px;">' + escapeHtml(item.qty || '') + '</td>';
-    html += '<td style="padding:6px;">' + escapeHtml(item.warehouse || '') + '</td>';
-    html += '</tr>';
-  });
-  
-  html += '</tbody></table>';
-  document.getElementById('importPreviewTable').innerHTML = html;
-}
-
-function renderImportStats(totalRows) {
-  document.getElementById('importStats').innerHTML = 
-    '📊 تعداد کل ردیف‌ها: <b>' + totalRows + '</b><br>' +
-    '⚠️ کالاهای موجود به‌روز می‌شوند و کالاهای جدید اضافه می‌شوند.';
-}
-
-function confirmImport() {
-  var btn = document.getElementById('importConfirmBtn');
-  btn.disabled = true;
-  btn.textContent = 'در حال همگام‌سازی...';
-  
-  apiCall('apiImportConfirm', {
-    token: state.token,
-    data: JSON.stringify(importData),
-    mapping: JSON.stringify(importMapping)
-  }).then(function(res) {
-    btn.disabled = false;
-    btn.textContent = 'شروع همگام‌سازی';
-    
-    if (handleIfSessionExpired(res)) return;
-    
-    if (!res.success) {
-      showToast(res.message || 'خطا در همگام‌سازی', true);
-      return;
-    }
-    
-    var html = '<div style="padding:16px;background:var(--surface);border-radius:12px;">';
-    html += '<div style="font-size:14px;font-weight:700;margin-bottom:12px;">✓ همگام‌سازی با موفقیت انجام شد</div>';
-    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">';
-    html += '<div style="padding:12px;background:#fff;border-radius:8px;text-align:center;">';
-    html += '<div style="font-size:24px;font-weight:800;color:var(--accent);">' + res.updated + '</div>';
-    html += '<div style="font-size:11px;color:var(--muted);">کالای به‌روزشده</div>';
-    html += '</div>';
-    html += '<div style="padding:12px;background:#fff;border-radius:8px;text-align:center;">';
-    html += '<div style="font-size:24px;font-weight:800;color:var(--ok);">' + res.added + '</div>';
-    html += '<div style="font-size:11px;color:var(--muted);">کالای جدید</div>';
-    html += '</div>';
-    html += '</div>';
-    
-    if (res.errors && res.errors.length > 0) {
-      html += '<div style="margin-top:12px;padding:10px;background:#fdeeee;border-radius:8px;font-size:11px;color:var(--bad);">';
-      html += '<b>خطاها:</b><br>' + res.errors.slice(0, 5).join('<br>');
-      if (res.errors.length > 5) html += '<br>... و ' + (res.errors.length - 5) + ' خطای دیگر';
-      html += '</div>';
-    }
-    
-    html += '</div>';
-    
-    document.getElementById('importResultContent').innerHTML = html;
-    document.getElementById('importPreviewArea').style.display = 'none';
-    document.getElementById('importResultArea').style.display = 'block';
-    
-    showToast('✓ همگام‌سازی موفق');
-  }).catch(function(err) {
-    btn.disabled = false;
-    btn.textContent = 'شروع همگام‌سازی';
-    showToast(err.message, true);
-  });
-}
-
 // ===================== شروع برنامه =====================
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js').catch(function () {});
 }
+
 pendingId = readIdFromLocation();
+
 if (state.serverUrl) {
   var serverInput = document.getElementById('serverUrlInput');
   if (serverInput) serverInput.value = state.serverUrl;
 }
+
 if (state.token && state.username) {
   enterApp();
 } else {
   showScreen('loginScreen');
+  // اگر از کیوآرکد آمده ولی هنوز وارد نشده، بعد از ورود موفق مستقیم همان کالا باز می‌شود (pendingId)
 }
