@@ -139,3 +139,6 @@ body{
 .toast.show{transform:translateX(-50%) translateY(0);}
 .toast.ok{background:var(--ok);}
 .toast.err{background:var(--bad);}
+
+/* ===== پیش‌نمایش عمومی کالا (قبل از ورود) ===== */
+.public-login-note{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 14px;font-size:12.5px;color:var(--muted);margin-bottom:12px;text-align:center;line-height:1.8;}
