@@ -270,6 +270,60 @@ function backToSearch() {
   }
 }
 
+// ===================== پیش‌نمایش عمومی کالا (قبل از ورود) =====================
+function openPublicItemPreview(code) {
+  showScreen('publicItemScreen');
+  var area = document.getElementById('publicItemArea');
+  area.innerHTML = '<div class="lookup-loading"><div class="spinner"></div> در حال دریافت مشخصات کالا...</div>';
+
+  apiCall('apiPublicItem', { code: code }).then(function (res) {
+    if (!res.success) {
+      area.innerHTML = '<div class="empty-hint">' + escapeHtml(res.message || 'کالا پیدا نشد.') + '</div>';
+      return;
+    }
+    renderPublicItemPreview(res, code);
+  }).catch(function (err) {
+    area.innerHTML = '<div class="empty-hint">' + escapeHtml(err.message) + '</div>';
+  });
+}
+
+function renderPublicItemPreview(item, code) {
+  var area = document.getElementById('publicItemArea');
+  var images = item.images || [];
+  var fields = item.fields || [];
+
+  var galleryHtml;
+  if (images.length) {
+    galleryHtml = '<div class="item-gallery">' + images.map(function (src) {
+      return '<img src="' + escapeHtml(src) + '" onerror="this.style.display=\'none\'">';
+    }).join('') + '</div>';
+  } else {
+    galleryHtml = '<div class="item-noimg">تصویری ثبت نشده</div>';
+  }
+
+  var fieldsHtml = '';
+  if (fields.length) {
+    fieldsHtml = '<div class="item-fields">' + fields.map(function (f) {
+      return '<div class="item-field"><div class="k">' + escapeHtml(f[0]) + '</div><div class="v">' + escapeHtml(f[1]) + '</div></div>';
+    }).join('') + '</div>';
+  }
+
+  area.innerHTML =
+    '<div class="item-detail-card">' +
+      galleryHtml +
+      '<div class="item-title">' + escapeHtml(item.name || '(بدون نام)') + '</div>' +
+      '<div class="item-code-pill">' + escapeHtml(item.code) + '</div>' +
+      fieldsHtml +
+      '<div class="public-login-note">برای دیدن موجودی و ثبت شمارش این کالا، ابتدا وارد سامانه شوید.</div>' +
+      '<button class="btn btn-primary" onclick="goLoginKeepPending(' + JSON.stringify(code) + ')">ورود و ثبت شمارش این کالا</button>' +
+    '</div>';
+}
+
+function goLoginKeepPending(code) {
+  pendingId = code; // بعد از ورود موفق، مستقیم همین کالا باز می‌شود
+  showScreen('loginScreen');
+}
+
 // ===================== جزئیات کامل کالا =====================
 function openItemDetail(code) {
   var area = document.getElementById('resultArea');
@@ -444,7 +498,9 @@ if (state.serverUrl) {
 
 if (state.token && state.username) {
   enterApp();
+} else if (pendingId) {
+  // از کیوآرکد آمده ولی هنوز وارد نشده: پیش‌نمایش کالا (بدون موجودی) نشان داده می‌شود
+  openPublicItemPreview(pendingId);
 } else {
   showScreen('loginScreen');
-  // اگر از کیوآرکد آمده ولی هنوز وارد نشده، بعد از ورود موفق مستقیم همان کالا باز می‌شود (pendingId)
 }
