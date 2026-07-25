@@ -66,6 +66,18 @@
   </div>
 </div>
 
+<!-- ============ صفحه‌ی پیش‌نمایش عمومی کالا (قبل از ورود) ============ -->
+<div class="screen" id="publicItemScreen">
+  <div class="top-strip">
+    <button class="icon-btn" onclick="showScreen('loginScreen')" title="ورود">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+    </button>
+    <div class="who"><span>اسکنر انبارگردانی</span><span>پیش‌نمایش کالا</span></div>
+    <div style="width:36px;"></div>
+  </div>
+  <div id="publicItemArea" style="padding:14px;overflow-y:auto;flex:1;"></div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script src="app.js"></script>
