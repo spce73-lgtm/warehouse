@@ -1,6 +1,6 @@
 // اول شبکه، بعد کش (برای اینکه به‌روزرسانی‌های آینده همیشه فوری اعمال شود).
-// نسخه‌ی کش عوض شد چون معماری اپ کامل تغییر کرد (بدون اسکنر داخلی).
-var CACHE_NAME = 'wh-scanner-shell-v3';
+// نسخه‌ی کش عوض شد: افزودن انتخاب‌گر انبار برای کالاهای چندانباره.
+var CACHE_NAME = 'wh-scanner-shell-v4';
 var SHELL_FILES = ['./', './index.html', './style.css', './app.js', './manifest.json'];
 
 self.addEventListener('install', function (event) {
