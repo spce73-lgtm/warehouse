@@ -271,20 +271,41 @@ function backToSearch() {
 }
 
 // ===================== پیش‌نمایش عمومی کالا (قبل از ورود) =====================
+// کش محلی فایل items.json (تا وقتی صفحه باز است، دوباره دانلود نمی‌شود)
+var itemsJsonCache = null;
+
 function openPublicItemPreview(code) {
   showScreen('publicItemScreen');
   var area = document.getElementById('publicItemArea');
   area.innerHTML = '<div class="lookup-loading"><div class="spinner"></div> در حال دریافت مشخصات کالا...</div>';
 
-  apiCall('apiPublicItem', { code: code }).then(function (res) {
-    if (!res.success) {
-      area.innerHTML = '<div class="empty-hint">' + escapeHtml(res.message || 'کالا پیدا نشد.') + '</div>';
+  loadItemsJson().then(function (items) {
+    var found = items.filter(function (it) { return String(it.code).trim() === String(code).trim(); })[0];
+    if (!found) {
+      area.innerHTML = '<div class="empty-hint">کالایی با این کد پیدا نشد.<br>ممکن است فایل کالاها هنوز به‌روزرسانی نشده باشد.</div>';
       return;
     }
-    renderPublicItemPreview(res, code);
+    renderPublicItemPreview(found, code);
   }).catch(function (err) {
-    area.innerHTML = '<div class="empty-hint">' + escapeHtml(err.message) + '</div>';
+    area.innerHTML = '<div class="empty-hint">خطا در بارگذاری فایل کالاها: ' + escapeHtml(err.message) + '</div>';
   });
+}
+
+/**
+ * فایل استاتیک items.json را از همین ریپوی گیت‌هاب می‌خواند (بدون هیچ تماسی با گوگل).
+ * این فایل به‌صورت دوره‌ای توسط اسکریپت گوگل‌شیت روی گیت‌هاب به‌روزرسانی می‌شود.
+ */
+function loadItemsJson() {
+  if (itemsJsonCache) return Promise.resolve(itemsJsonCache);
+  return fetch('./items.json', { cache: 'no-store' })
+    .then(function (resp) {
+      if (!resp.ok) throw new Error('فایل items.json پیدا نشد (کد ' + resp.status + ')');
+      return resp.json();
+    })
+    .then(function (data) {
+      itemsJsonCache = data;
+      return data;
+    });
 }
 
 function renderPublicItemPreview(item, code) {
