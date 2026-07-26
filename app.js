@@ -419,6 +419,29 @@ function renderItemDetail(item) {
     }).join('') + '</div>';
   }
 
+  // موجودی به‌تفکیک انبار (فقط اگر کالا در بیش از یک انبار ثبت شده باشد)
+  var warehousesHtml = '';
+  var warehouses = item.warehouses || [];
+  if (warehouses.length > 1) {
+    warehousesHtml = '<div class="section-title">موجودی به تفکیک انبار</div><div class="wh-grid">' +
+      warehouses.map(function (w) {
+        return '<div class="wh-item"><div class="k">' + escapeHtml(w.warehouse) + '</div><div class="v">' + escapeHtml(String(w.qty)) + '</div></div>';
+      }).join('') + '</div>';
+  }
+
+  // آخرین شمارش ثبت‌شده (در یک سال اخیر)
+  var lastCountHtml = '';
+  if (item.lastCount) {
+    var lc = item.lastCount;
+    var diffTxt = (lc.diff === '' || lc.diff === null || lc.diff === undefined) ? '' :
+      (' · اختلاف: ' + (Number(lc.diff) > 0 ? '+' : '') + escapeHtml(String(lc.diff)));
+    lastCountHtml =
+      '<div class="last-count-box">' +
+        '<div class="k">آخرین شمارش ثبت‌شده</div>' +
+        '<div class="v">' + escapeHtml(lc.date) + ' — موجودی فیزیکی: ' + escapeHtml(String(lc.physicalQty)) + diffTxt + '</div>' +
+      '</div>';
+  }
+
   var html =
     '<div class="item-detail-card">' +
       '<button class="back-link" onclick="backToSearch()">‹ بازگشت به جست‌وجو</button>' +
@@ -426,7 +449,9 @@ function renderItemDetail(item) {
       '<div class="item-title">' + escapeHtml(item.name || '(بدون نام)') + '</div>' +
       '<div class="item-code-pill">' + escapeHtml(item.code) + '</div>' +
       fieldsHtml +
-      '<div class="sys-qty-row"><span class="k">موجودی سیستم</span><span class="v">' + escapeHtml(item.systemQty !== '' && item.systemQty != null ? item.systemQty : '—') + '</span></div>' +
+      warehousesHtml +
+      lastCountHtml +
+      '<div class="sys-qty-row"><span class="k">موجودی سیستم' + (warehouses.length > 1 ? ' (مجموع کل انبارها)' : '') + '</span><span class="v">' + escapeHtml(item.systemQty !== '' && item.systemQty != null ? item.systemQty : '—') + '</span></div>' +
       '<div class="count-form-title">ثبت شمارش انبارگردانی</div>' +
       '<div class="qty-row">' +
         '<button class="qty-step" onclick="stepQty(-1)">−</button>' +
