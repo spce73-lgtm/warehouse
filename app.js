@@ -278,6 +278,7 @@ function openPublicItemPreview(code) {
   showScreen('publicItemScreen');
   var area = document.getElementById('publicItemArea');
   area.innerHTML = '<div class="lookup-loading"><div class="spinner"></div> در حال دریافت مشخصات کالا...</div>';
+  renderPublicLoginBar(code);
 
   loadItemsJson().then(function (items) {
     var found = items.filter(function (it) { return String(it.code).trim() === String(code).trim(); })[0];
@@ -289,6 +290,21 @@ function openPublicItemPreview(code) {
   }).catch(function (err) {
     area.innerHTML = '<div class="empty-hint">خطا در بارگذاری فایل کالاها: ' + escapeHtml(err.message) + '</div>';
   });
+}
+
+/**
+ * نوار «ورود کاربر» بالای صفحه‌ی پیش‌نمایش — همیشه نمایش داده می‌شود،
+ * چه کالا پیدا شود چه نشود (مثلاً هنگام خطای items.json).
+ */
+function renderPublicLoginBar(code) {
+  var bar = document.getElementById('publicLoginBar');
+  if (!bar) return;
+  bar.innerHTML =
+    '<button class="btn btn-secondary public-login-btn" id="publicLoginBarBtn">' +
+      '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>' +
+      ' ورود کاربر' +
+    '</button>';
+  document.getElementById('publicLoginBarBtn').addEventListener('click', function () { goLoginKeepPending(code); });
 }
 
 /**
@@ -336,8 +352,10 @@ function renderPublicItemPreview(item, code) {
       '<div class="item-code-pill">' + escapeHtml(item.code) + '</div>' +
       fieldsHtml +
       '<div class="public-login-note">برای دیدن موجودی و ثبت شمارش این کالا، ابتدا وارد سامانه شوید.</div>' +
-      '<button class="btn btn-primary" onclick="goLoginKeepPending(' + JSON.stringify(code) + ')">ورود و ثبت شمارش این کالا</button>' +
+      '<button class="btn btn-primary" id="publicItemLoginBtn">ورود و ثبت شمارش این کالا</button>' +
     '</div>';
+  var loginBtn = document.getElementById('publicItemLoginBtn');
+  if (loginBtn) loginBtn.addEventListener('click', function () { goLoginKeepPending(code); });
 }
 
 function goLoginKeepPending(code) {
