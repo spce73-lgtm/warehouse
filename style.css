@@ -43,15 +43,42 @@
   --dur:.22s;
 }
 
+/* =====================================================================
+   فونت‌های فارسی — B Nazanin (متن) / B Titr (تیترها)
+   فایل‌های .woff2 را در مسیر ./fonts/ این ریپو قرار دهید:
+   fonts/BNazanin.woff2 , fonts/BTitr.woff2
+   ===================================================================== */
+@font-face{
+  font-family:'B Nazanin';
+  src:url('./fonts/BNazanin.woff2') format('woff2');
+  font-weight:normal;
+  font-style:normal;
+  font-display:swap;
+}
+@font-face{
+  font-family:'B Titr';
+  src:url('./fonts/BTitr.woff2') format('woff2');
+  font-weight:normal;
+  font-style:normal;
+  font-display:swap;
+}
+
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
 html,body{height:100%;margin:0;}
 body{
-  font-family:"Segoe UI",Tahoma,sans-serif;
+  font-family:'B Nazanin',"Segoe UI",Tahoma,sans-serif;
   background:var(--bg);
   color:var(--text);
   overscroll-behavior:none;
   -webkit-font-smoothing:antialiased;
-  letter-spacing:-.01em;
+}
+
+/* تیترها همیشه با B Titr */
+h1,h2,h3,h4,h5,h6,
+.login-title,.item-title,.admin-title,
+.scan-ready-banner .title,.login-logo + .login-title{
+  font-family:'B Titr','B Nazanin',"Segoe UI",Tahoma,sans-serif;
+  font-weight:normal; /* B Titr خودش بولده؛ وزن اضافه لازم نیست */
 }
 ::selection{background:var(--accent-light);color:var(--accent-dark);}
 
