@@ -442,6 +442,19 @@ function renderItemDetail(item) {
       '</div>';
   }
 
+  // انتخاب انبار (فقط اگر کالا در بیش از یک انبار موجود باشد)
+  var warehouseSelectHtml = '';
+  if (warehouses.length > 1) {
+    warehouseSelectHtml =
+      '<label class="count-label">انتخاب انبار (برای ثبت شمارش)</label>' +
+      '<select class="wh-select" id="countWarehouseSelect">' +
+        '<option value="">— انتخاب کنید —</option>' +
+        warehouses.map(function (w) {
+          return '<option value="' + escapeHtml(w.warehouse) + '">' + escapeHtml(w.warehouse) + ' (موجودی سیستم: ' + escapeHtml(String(w.qty)) + ')</option>';
+        }).join('') +
+      '</select>';
+  }
+
   var html =
     '<div class="item-detail-card">' +
       '<button class="back-link" onclick="backToSearch()">‹ بازگشت به جست‌وجو</button>' +
@@ -453,6 +466,7 @@ function renderItemDetail(item) {
       lastCountHtml +
       '<div class="sys-qty-row"><span class="k">موجودی سیستم' + (warehouses.length > 1 ? ' (مجموع کل انبارها)' : '') + '</span><span class="v">' + escapeHtml(item.systemQty !== '' && item.systemQty != null ? item.systemQty : '—') + '</span></div>' +
       '<div class="count-form-title">ثبت شمارش انبارگردانی</div>' +
+      warehouseSelectHtml +
       '<div class="qty-row">' +
         '<button class="qty-step" onclick="stepQty(-1)">−</button>' +
         '<input type="number" class="qty-input" id="qtyInput" inputmode="decimal" placeholder="0" oninput="updateDiffPreview()">' +
@@ -497,11 +511,14 @@ function submitCount() {
   var qtyEl = document.getElementById('qtyInput');
   var qty = qtyEl ? qtyEl.value : '';
   if (qty === '') { showToast('عدد شمارش را وارد کنید', true); if (qtyEl) qtyEl.focus(); return; }
+  var whSelect = document.getElementById('countWarehouseSelect');
+  var warehouse = whSelect ? whSelect.value : '';
+  if (whSelect && !warehouse) { showToast('لطفاً ابتدا انبار را انتخاب کنید', true); whSelect.focus(); return; }
   var note = (document.getElementById('noteInput') || {}).value || '';
   var btn = document.getElementById('submitCountBtn');
   btn.disabled = true; btn.textContent = 'در حال ثبت...';
 
-  apiCall('apiRecordCount', { token: state.token, code: currentDetail.code, qty: qty, note: note }).then(function (res) {
+  apiCall('apiRecordCount', { token: state.token, code: currentDetail.code, qty: qty, note: note, warehouse: warehouse }).then(function (res) {
     btn.disabled = false; btn.textContent = 'ثبت شمارش';
     if (handleIfSessionExpired(res)) return;
     if (!res.success) { showToast(res.message || 'خطا در ثبت', true); return; }
