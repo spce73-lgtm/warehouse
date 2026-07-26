@@ -53,15 +53,29 @@ function readIdFromLocation() {
   return params.get('id');
 }
 // اگر کسی به‌جای کد خام، یک لینک کامل داخل کادر جست‌وجو پیست کرده بود، کد را از آن دربیاور
+/**
+ * تبدیل ارقام فارسی/عربی به انگلیسی (مثلاً «۱۲۳۴» یا «١٢٣٤» به «1234»)
+ * تا جست‌وجو و تشخیص کد با هر صفحه‌کلیدی درست کار کند.
+ */
+function normalizePersianDigits(str) {
+  if (str === null || str === undefined) return str;
+  var s = String(str);
+  var persian = '۰۱۲۳۴۵۶۷۸۹';
+  var arabic  = '٠١٢٣٤٥٦٧٨٩';
+  s = s.replace(/[۰-۹]/g, function (d) { return String(persian.indexOf(d)); });
+  s = s.replace(/[٠-٩]/g, function (d) { return String(arabic.indexOf(d)); });
+  return s;
+}
+
 function extractItemCode(raw) {
   if (/^https?:\/\//i.test(raw)) {
     try {
       var u = new URL(raw);
       var idParam = u.searchParams.get('id');
-      if (idParam) return idParam;
+      if (idParam) return normalizePersianDigits(idParam);
     } catch (e) {}
   }
-  return raw;
+  return normalizePersianDigits(raw);
 }
 // بعد از استفاده از id داخل آدرس، آن را از نوار آدرس پاک کن تا با رفرش دوباره تکرار نشود
 function clearIdFromUrl() {
@@ -281,7 +295,8 @@ function openPublicItemPreview(code) {
   renderPublicLoginBar(code);
 
   loadItemsJson().then(function (items) {
-    var found = items.filter(function (it) { return String(it.code).trim() === String(code).trim(); })[0];
+    var normalizedCode = normalizePersianDigits(String(code).trim());
+    var found = items.filter(function (it) { return normalizePersianDigits(String(it.code).trim()) === normalizedCode; })[0];
     if (!found) {
       area.innerHTML = '<div class="empty-hint">کالایی با این کد پیدا نشد.<br>ممکن است فایل کالاها هنوز به‌روزرسانی نشده باشد.</div>';
       return;
