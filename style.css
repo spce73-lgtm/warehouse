@@ -319,3 +319,8 @@ h1,h2,h3,h4,h5,h6,
 .last-count-box{background:var(--warn-light);border:1px solid #f0d080;border-radius:var(--r-md);padding:11px 14px;margin-bottom:var(--sp-4);}
 .last-count-box .k{color:var(--warn);font-size:11px;font-weight:700;margin-bottom:3px;}
 .last-count-box .v{color:#7a5500;font-size:12.5px;font-weight:700;line-height:1.7;}
+
+/* ===== انتخاب انبار برای ثبت شمارش ===== */
+.wh-select{width:100%;padding:11px 14px;border:1.5px solid var(--border);border-radius:var(--r-md);font-size:13.5px;font-family:inherit;background:var(--surface);margin-bottom:var(--sp-3);transition:border-color var(--dur-fast) var(--ease);}
+.wh-select:focus{outline:none;border-color:var(--accent);background:#fff;box-shadow:0 0 0 4px var(--accent-light);}
+.count-label{display:block;font-size:12px;font-weight:700;color:var(--text-soft);margin-bottom:var(--sp-2);}
