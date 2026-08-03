@@ -10,13 +10,15 @@ var LS_TOKEN = 'wh_scanner_token';
 var LS_USER = 'wh_scanner_username';
 var LS_ROLE = 'wh_scanner_role';
 var LS_FULLNAME = 'wh_scanner_fullname';
+var LS_WAREHOUSE = 'wh_scanner_warehouse_access';
 
 var state = {
   serverUrl: localStorage.getItem(LS_SERVER) || '',
   token: localStorage.getItem(LS_TOKEN) || '',
   username: localStorage.getItem(LS_USER) || '',
   role: localStorage.getItem(LS_ROLE) || '',
-  fullName: localStorage.getItem(LS_FULLNAME) || ''
+  fullName: localStorage.getItem(LS_FULLNAME) || '',
+  warehouseAccess: localStorage.getItem(LS_WAREHOUSE) === '1'
 };
 
 var recentItems = [];
@@ -182,10 +184,12 @@ function doLogin() {
       return;
     }
     state.token = res.token; state.username = res.username; state.role = res.role; state.fullName = res.fullName;
+    state.warehouseAccess = res.warehouseAccess === true;
     localStorage.setItem(LS_TOKEN, state.token);
     localStorage.setItem(LS_USER, state.username);
     localStorage.setItem(LS_ROLE, state.role);
     localStorage.setItem(LS_FULLNAME, state.fullName);
+    localStorage.setItem(LS_WAREHOUSE, state.warehouseAccess ? '1' : '0');
     enterApp();
   }).catch(function (err) {
     btn.disabled = false; btn.textContent = 'ورود';
@@ -198,13 +202,16 @@ function doLogout() {
   localStorage.removeItem(LS_USER);
   localStorage.removeItem(LS_ROLE);
   localStorage.removeItem(LS_FULLNAME);
-  state.token = ''; state.username = ''; state.role = ''; state.fullName = '';
+  localStorage.removeItem(LS_WAREHOUSE);
+  state.token = ''; state.username = ''; state.role = ''; state.fullName = ''; state.warehouseAccess = false;
   showScreen('loginScreen');
 }
 
 function enterApp() {
   setText('whoLabel', state.fullName || state.username);
   setText('whoSub', state.role || '');
+  var shelvesBtn = document.getElementById('shelvesNavBtn');
+  if (shelvesBtn) shelvesBtn.style.display = state.warehouseAccess ? '' : 'none';
   showScreen('mainScreen');
 
   if (pendingId) {
@@ -622,6 +629,140 @@ function submitWeightShelf() {
     btn.disabled = false; btn.textContent = 'ذخیره تغییرات';
     msg.textContent = 'خطا: ' + err.message; msg.className = 'diff-preview bad';
   });
+}
+
+// ===================== قفسه‌ها — نظارت خودکار بار قفسه (فقط دسترسی انبار) =====================
+// توجه معماری: تمام محاسبات (بار فعلی، باقیمانده، درصد استفاده، وضعیت) روی سرور
+// انجام می‌شود؛ این بخش فقط همان مقادیر آماده را می‌گیرد و نمایش می‌دهد.
+var shelvesViewState = 'list'; // 'list' یا 'detail'
+var currentShelfCode = null;
+
+function shelvesBack() {
+  if (shelvesViewState === 'detail') {
+    openShelvesList();
+  } else {
+    showScreen('mainScreen');
+  }
+}
+
+function openShelvesList() {
+  shelvesViewState = 'list';
+  currentShelfCode = null;
+  showScreen('shelvesScreen');
+  var area = document.getElementById('shelvesArea');
+  area.innerHTML = '<div class="empty-hint">در حال بارگذاری فهرست قفسه‌ها...</div>';
+  apiCall('apiListShelvesWithLoad', { token: state.token }).then(function (res) {
+    if (handleIfSessionExpired(res)) return;
+    if (!res.success) { area.innerHTML = '<div class="empty-hint">' + escapeHtml(res.message || 'خطا در دریافت اطلاعات قفسه‌ها.') + '</div>'; return; }
+    renderShelvesList(res.shelves || []);
+  }).catch(function (err) {
+    area.innerHTML = '<div class="empty-hint">خطا: ' + escapeHtml(err.message) + '</div>';
+  });
+}
+
+// رنگ متن/نوار بر اساس وضعیتِ آماده‌شده‌ی سرور (فقط نگاشت رنگ، بدون هیچ محاسبه‌ای)
+function shelfLoadStatusColorClient_(status) {
+  if (status === 'اضافه‌بار') return '#c53030';
+  if (status === 'بحرانی') return '#b25400';
+  if (status === 'هشدار') return '#a15c00';
+  if (status === 'عادی') return '#1a7f37';
+  return '#8b94a0';
+}
+
+function shelfUsageBarHtmlClient_(usagePercent, color) {
+  if (usagePercent === null || usagePercent === undefined) return '<span style="color:#8b94a0;font-size:12px;">—</span>';
+  var visualPct = Math.max(0, Math.min(100, usagePercent));
+  return '<div style="display:flex;align-items:center;gap:7px;">' +
+    '<div style="background:#e9edf2;border-radius:6px;height:6px;width:90px;overflow:hidden;"><div style="height:100%;width:' + visualPct + '%;background:' + color + ';"></div></div>' +
+    '<span style="font-size:11.5px;color:' + color + ';font-weight:700;">' + usagePercent + '%</span>' +
+  '</div>';
+}
+
+function renderShelvesList(shelves) {
+  var area = document.getElementById('shelvesArea');
+  if (!shelves.length) {
+    area.innerHTML = '<div class="empty-hint">قفسه‌ای یافت نشد.</div>';
+    return;
+  }
+  var html = '<div class="section-title">قفسه‌ها (' + shelves.length + ')</div><div class="result-list">';
+  shelves.forEach(function (s) {
+    var color = shelfLoadStatusColorClient_(s.loadStatus);
+    html +=
+      '<div class="result-row" style="border-inline-start:3px solid ' + color + ';" onclick="openShelfDetail(\'' + escapeHtml(s.code).replace(/'/g, "\\\\'") + '\')">' +
+        '<div class="result-thumb">🗄️</div>' +
+        '<div class="result-info">' +
+          '<div class="result-name">' + escapeHtml(s.code) + (s.location ? ' — ' + escapeHtml(s.location) : '') + '</div>' +
+          '<div class="result-meta">' +
+            '<span style="color:' + color + ';font-weight:700;">' + escapeHtml(s.loadStatus) + '</span>' +
+            '<span>بار: ' + escapeHtml(String(s.currentLoad)) + ' kg' + (s.capacityKg !== null ? (' از ' + escapeHtml(String(s.capacityKg)) + ' kg') : '') + '</span>' +
+            '<span>' + s.itemCount + ' کالا</span>' +
+          '</div>' +
+          '<div style="margin-top:6px;">' + shelfUsageBarHtmlClient_(s.usagePercent, color) + '</div>' +
+        '</div>' +
+      '</div>';
+  });
+  html += '</div>';
+  area.innerHTML = html;
+}
+
+function openShelfDetail(code) {
+  shelvesViewState = 'detail';
+  currentShelfCode = code;
+  var area = document.getElementById('shelvesArea');
+  area.innerHTML = '<div class="empty-hint">در حال بارگذاری جزئیات قفسه...</div>';
+  apiCall('apiGetShelfDetail', { token: state.token, shelf: code }).then(function (res) {
+    if (handleIfSessionExpired(res)) return;
+    if (!res.success) { area.innerHTML = '<div class="empty-hint">' + escapeHtml(res.message || 'خطا در دریافت جزئیات قفسه.') + '</div>'; return; }
+    renderShelfDetail(res.shelf);
+  }).catch(function (err) {
+    area.innerHTML = '<div class="empty-hint">خطا: ' + escapeHtml(err.message) + '</div>';
+  });
+}
+
+function renderShelfDetail(shelf) {
+  var area = document.getElementById('shelvesArea');
+  var color = shelfLoadStatusColorClient_(shelf.loadStatus);
+
+  var html =
+    '<a style="display:inline-block;margin-bottom:10px;color:#0f4c81;font-size:13px;font-weight:700;text-decoration:none;" onclick="openShelvesList();return false;" href="#">‹ بازگشت به فهرست قفسه‌ها</a>' +
+    '<div class="section-title">قفسه‌ی ' + escapeHtml(shelf.code) + (shelf.location ? ' — ' + escapeHtml(shelf.location) : '') + '</div>' +
+    '<div class="item-fields">' +
+      '<div class="item-field"><div class="k">حداکثر ظرفیت</div><div class="v">' + (shelf.capacityKg === null ? '—' : escapeHtml(String(shelf.capacityKg)) + ' kg') + '</div></div>' +
+      '<div class="item-field"><div class="k">بار فعلی</div><div class="v">' + escapeHtml(String(shelf.currentLoad)) + ' kg</div></div>' +
+      '<div class="item-field"><div class="k">ظرفیت باقیمانده</div><div class="v">' + (shelf.remainingCapacity === null ? '—' : escapeHtml(String(shelf.remainingCapacity)) + ' kg') + '</div></div>' +
+      '<div class="item-field"><div class="k">وضعیت بار</div><div class="v" style="color:' + color + ';font-weight:700;">' + escapeHtml(shelf.loadStatus) + '</div></div>' +
+    '</div>' +
+    '<div style="margin:10px 0 16px;">' + shelfUsageBarHtmlClient_(shelf.usagePercent, color) + '</div>';
+
+  html += '<div class="section-title">کالاهای این قفسه (' + shelf.items.length + ')</div>';
+  if (!shelf.items.length) {
+    html += '<div class="empty-hint">کالایی با وزن ثبت‌شده روی این قفسه نیست.</div>';
+  } else {
+    html += '<div class="result-list">';
+    shelf.items.forEach(function (it) {
+      html +=
+        '<div class="result-row" onclick="viewItemFromShelf(\'' + escapeHtml(it.code).replace(/'/g, "\\\\'") + '\')">' +
+          '<div class="result-thumb">📦</div>' +
+          '<div class="result-info">' +
+            '<div class="result-name">' + escapeHtml(it.name || '(بدون نام)') + '</div>' +
+            '<div class="result-meta">' +
+              '<span class="code-pill-sm">' + escapeHtml(it.code) + '</span>' +
+              '<span>تعداد: ' + escapeHtml(String(it.qty)) + '</span>' +
+              '<span>وزن واحد: ' + escapeHtml(String(it.unitWeight)) + ' kg</span>' +
+              '<span><b>وزن کل: ' + escapeHtml(String(it.totalWeight)) + ' kg</b></span>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+    });
+    html += '</div>';
+  }
+  area.innerHTML = html;
+}
+
+// از داخل جزئیات قفسه، مستقیم به جزئیات همان کالا برو (در صفحه‌ی اصلی)
+function viewItemFromShelf(code) {
+  showScreen('mainScreen');
+  openItemDetail(code);
 }
 
 // صفحه‌ی «آماده برای اسکن بعدی» - چون اسکنر داخلی نداریم، همین‌جا راهنمایی می‌کنیم
