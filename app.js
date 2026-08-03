@@ -455,6 +455,43 @@ function renderItemDetail(item) {
       '</select>';
   }
 
+  // ===================== وزن و قفسه (فقط برای کاربران دارای دسترسی انبار) =====================
+  // سرور فقط وقتی این فیلدها را برمی‌گرداند که کاربر دسترسی انبار داشته باشد؛ همان حضورِ
+  // item.shelfDisplay اینجا به‌عنوان نشانه‌ی مجوز استفاده می‌شود (بدون تصمیم‌گیری سمت کلاینت).
+  var weightShelfHtml = '';
+  if (item.shelfDisplay !== undefined) {
+    var activeShelves = item.activeShelves || [];
+    var shelfOptionsHtml = '<option value="">— بدون قفسه —</option>' +
+      activeShelves.map(function (s) {
+        var label = s.code + (s.location ? ' — ' + s.location : '');
+        return '<option value="' + escapeHtml(s.code) + '"' + (item.shelfCode === s.code ? ' selected' : '') + '>' + escapeHtml(label) + '</option>';
+      }).join('');
+    // اگر قفسه‌ی فعلی کالا دیگر در فهرست قفسه‌های فعال نیست (مثلاً غیرفعال شده)، باز هم نشان داده شود تا از دست نرود
+    if (item.shelfCode && activeShelves.every(function (s) { return s.code !== item.shelfCode; })) {
+      shelfOptionsHtml += '<option value="' + escapeHtml(item.shelfCode) + '" selected>' + escapeHtml(item.shelfCode) + ' (غیرفعال/نامعتبر)</option>';
+    }
+    var capacityNote = (item.shelf && item.shelf.capacityKg !== '' && item.shelf.capacityKg != null)
+      ? '<div class="weight-shelf-note">ظرفیت باربری این قفسه: ' + escapeHtml(String(item.shelf.capacityKg)) + ' kg</div>' : '';
+
+    weightShelfHtml =
+      '<div class="section-title">وزن و قفسه</div>' +
+      '<div class="item-fields">' +
+        '<div class="item-field"><div class="k">وزن واحد</div><div class="v" id="unitWeightView">' + escapeHtml(item.unitWeightDisplay) + '</div></div>' +
+        '<div class="item-field"><div class="k">وزن کل موجودی</div><div class="v" id="totalWeightView">' + escapeHtml(item.totalWeightDisplay) + '</div></div>' +
+        '<div class="item-field"><div class="k">قفسه</div><div class="v" id="shelfView">' + escapeHtml(item.shelfDisplay) + '</div></div>' +
+      '</div>' +
+      capacityNote +
+      '<button class="btn btn-secondary" id="toggleWeightShelfBtn" onclick="toggleWeightShelfEdit()">ویرایش وزن / قفسه</button>' +
+      '<div class="weight-shelf-edit" id="weightShelfEditBox" style="display:none;">' +
+        '<label class="count-label">وزن واحد (kg)</label>' +
+        '<input type="number" class="qty-input" id="unitWeightInput" step="0.001" min="0" inputmode="decimal" value="' + (item.unitWeight === '' ? '' : escapeHtml(String(item.unitWeight))) + '" placeholder="مثلاً 2.5">' +
+        '<label class="count-label">قفسه</label>' +
+        '<select class="wh-select" id="shelfSelect">' + shelfOptionsHtml + '</select>' +
+        '<button class="btn btn-primary" id="saveWeightShelfBtn" onclick="submitWeightShelf()">ذخیره تغییرات</button>' +
+        '<div class="diff-preview" id="weightShelfMsg"></div>' +
+      '</div>';
+  }
+
   var html =
     '<div class="item-detail-card">' +
       '<button class="back-link" onclick="backToSearch()">‹ بازگشت به جست‌وجو</button>' +
@@ -464,6 +501,7 @@ function renderItemDetail(item) {
       fieldsHtml +
       warehousesHtml +
       lastCountHtml +
+      weightShelfHtml +
       '<div class="sys-qty-row"><span class="k">موجودی سیستم' + (warehouses.length > 1 ? ' (مجموع کل انبارها)' : '') + '</span><span class="v">' + escapeHtml(item.systemQty !== '' && item.systemQty != null ? item.systemQty : '—') + '</span></div>' +
       '<div class="count-form-title">ثبت شمارش انبارگردانی</div>' +
       warehouseSelectHtml +
@@ -531,6 +569,58 @@ function submitCount() {
   }).catch(function (err) {
     btn.disabled = false; btn.textContent = 'ثبت شمارش';
     showToast(err.message, true);
+  });
+}
+
+// ===================== ویرایش وزن / قفسه (فقط کاربران دارای دسترسی انبار می‌بینند) =====================
+function toggleWeightShelfEdit() {
+  var box = document.getElementById('weightShelfEditBox');
+  if (!box) return;
+  var open = box.style.display !== 'none';
+  box.style.display = open ? 'none' : 'block';
+  var btn = document.getElementById('toggleWeightShelfBtn');
+  if (btn) btn.textContent = open ? 'ویرایش وزن / قفسه' : 'انصراف از ویرایش';
+}
+
+function submitWeightShelf() {
+  if (!currentDetail) return;
+  var weightEl = document.getElementById('unitWeightInput');
+  var shelfEl = document.getElementById('shelfSelect');
+  var msg = document.getElementById('weightShelfMsg');
+  var btn = document.getElementById('saveWeightShelfBtn');
+  var unitWeight = weightEl ? weightEl.value : '';
+  var shelfCode = shelfEl ? shelfEl.value : '';
+
+  if (unitWeight !== '' && (isNaN(Number(unitWeight)) || Number(unitWeight) < 0)) {
+    msg.textContent = 'وزن واحد باید عددی نامنفی باشد.'; msg.className = 'diff-preview bad'; return;
+  }
+
+  btn.disabled = true; btn.textContent = 'در حال ذخیره...';
+  msg.textContent = ''; msg.className = 'diff-preview';
+
+  // توجه: محاسبه‌ی وزن کل و اعتبارسنجی قفسه فقط سمت سرور انجام می‌شود؛
+  // اینجا فقط مقادیر خام کاربر ارسال و نتیجه‌ی آماده‌ی سرور نمایش داده می‌شود.
+  apiCall('apiUpdateItemWeightShelf', { token: state.token, code: currentDetail.code, unitWeight: unitWeight, shelfCode: shelfCode }).then(function (res) {
+    btn.disabled = false; btn.textContent = 'ذخیره تغییرات';
+    if (handleIfSessionExpired(res)) return;
+    if (!res.success) { msg.textContent = res.message || 'خطا در ذخیره.'; msg.className = 'diff-preview bad'; return; }
+
+    setText('unitWeightView', res.unitWeightDisplay);
+    setText('totalWeightView', res.totalWeightDisplay);
+    setText('shelfView', res.shelfDisplay);
+    currentDetail.unitWeight = res.unitWeight;
+    currentDetail.shelfCode = res.shelfCode;
+    currentDetail.shelf = res.shelf;
+    currentDetail.totalWeight = res.totalWeight;
+    currentDetail.unitWeightDisplay = res.unitWeightDisplay;
+    currentDetail.totalWeightDisplay = res.totalWeightDisplay;
+    currentDetail.shelfDisplay = res.shelfDisplay;
+
+    msg.textContent = 'ذخیره شد.'; msg.className = 'diff-preview ok';
+    toggleWeightShelfEdit();
+  }).catch(function (err) {
+    btn.disabled = false; btn.textContent = 'ذخیره تغییرات';
+    msg.textContent = 'خطا: ' + err.message; msg.className = 'diff-preview bad';
   });
 }
 
