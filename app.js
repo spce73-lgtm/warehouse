@@ -477,8 +477,25 @@ function renderItemDetail(item) {
     if (item.shelfCode && activeShelves.every(function (s) { return s.code !== item.shelfCode; })) {
       shelfOptionsHtml += '<option value="' + escapeHtml(item.shelfCode) + '" selected>' + escapeHtml(item.shelfCode) + ' (غیرفعال/نامعتبر)</option>';
     }
-    var capacityNote = (item.shelf && item.shelf.capacityKg !== '' && item.shelf.capacityKg != null)
-      ? '<div class="weight-shelf-note">ظرفیت باربری این قفسه: ' + escapeHtml(String(item.shelf.capacityKg)) + ' kg</div>' : '';
+    // >>> افزوده شد: پنل فشرده‌ی ظرفیت قفسه — از همان محاسبات زنده‌ی سرور (item.shelfLoad) استفاده می‌شود
+    var shelfCapacityHtml = '';
+    if (item.shelfLoad) {
+      var slColor = shelfLoadStatusColorClient_(item.shelfLoad.loadStatus);
+      shelfCapacityHtml =
+        '<div style="border-top:1px dashed #e4e7ea;margin:10px 0;padding-top:10px;">' +
+          '<div style="font-size:12px;font-weight:800;color:#3f4750;margin-bottom:6px;">ظرفیت قفسه‌ی ' + escapeHtml(item.shelfCode) + '</div>' +
+          '<div class="item-fields" style="margin-bottom:6px;">' +
+            '<div class="item-field"><div class="k">حداکثر ظرفیت</div><div class="v">' + (item.shelfLoad.capacityKg === null ? '—' : escapeHtml(String(item.shelfLoad.capacityKg)) + ' kg') + '</div></div>' +
+            '<div class="item-field"><div class="k">بار فعلی قفسه</div><div class="v">' + escapeHtml(String(item.shelfLoad.currentLoad)) + ' kg</div></div>' +
+            '<div class="item-field"><div class="k">ظرفیت باقیمانده</div><div class="v">' + (item.shelfLoad.remainingCapacity === null ? '—' : escapeHtml(String(item.shelfLoad.remainingCapacity)) + ' kg') + '</div></div>' +
+          '</div>' +
+          '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">' +
+            shelfUsageBarHtmlClient_(item.shelfLoad.usagePercent, slColor) +
+            '<span style="font-size:11px;font-weight:700;color:' + slColor + ';">' + escapeHtml(item.shelfLoad.loadStatus) + '</span>' +
+          '</div>' +
+        '</div>';
+    }
+    // <<< پایان بخش افزوده‌شده
 
     weightShelfHtml =
       '<div class="section-title">وزن و قفسه</div>' +
@@ -487,7 +504,7 @@ function renderItemDetail(item) {
         '<div class="item-field"><div class="k">وزن کل موجودی</div><div class="v" id="totalWeightView">' + escapeHtml(item.totalWeightDisplay) + '</div></div>' +
         '<div class="item-field"><div class="k">قفسه</div><div class="v" id="shelfView">' + escapeHtml(item.shelfDisplay) + '</div></div>' +
       '</div>' +
-      capacityNote +
+      shelfCapacityHtml +
       '<button class="btn btn-secondary" id="toggleWeightShelfBtn" onclick="toggleWeightShelfEdit()">ویرایش وزن / قفسه</button>' +
       '<div class="weight-shelf-edit" id="weightShelfEditBox" style="display:none;">' +
         '<label class="count-label">وزن واحد (kg)</label>' +
@@ -612,9 +629,6 @@ function submitWeightShelf() {
     if (handleIfSessionExpired(res)) return;
     if (!res.success) { msg.textContent = res.message || 'خطا در ذخیره.'; msg.className = 'diff-preview bad'; return; }
 
-    setText('unitWeightView', res.unitWeightDisplay);
-    setText('totalWeightView', res.totalWeightDisplay);
-    setText('shelfView', res.shelfDisplay);
     currentDetail.unitWeight = res.unitWeight;
     currentDetail.shelfCode = res.shelfCode;
     currentDetail.shelf = res.shelf;
@@ -622,9 +636,10 @@ function submitWeightShelf() {
     currentDetail.unitWeightDisplay = res.unitWeightDisplay;
     currentDetail.totalWeightDisplay = res.totalWeightDisplay;
     currentDetail.shelfDisplay = res.shelfDisplay;
+    currentDetail.shelfLoad = res.shelfLoad; // پنل ظرفیت قفسه هم باید با بار تازه‌محاسبه‌شده به‌روز شود
 
-    msg.textContent = 'ذخیره شد.'; msg.className = 'diff-preview ok';
-    toggleWeightShelfEdit();
+    showToast('تغییرات ذخیره شد.', false);
+    renderItemDetail(currentDetail); // بازسازی کامل صفحه‌ی جزئیات تا پنل ظرفیت قفسه هم تازه شود
   }).catch(function (err) {
     btn.disabled = false; btn.textContent = 'ذخیره تغییرات';
     msg.textContent = 'خطا: ' + err.message; msg.className = 'diff-preview bad';
