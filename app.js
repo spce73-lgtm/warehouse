@@ -11,6 +11,9 @@ var LS_USER = 'wh_scanner_username';
 var LS_ROLE = 'wh_scanner_role';
 var LS_FULLNAME = 'wh_scanner_fullname';
 var LS_WAREHOUSE = 'wh_scanner_warehouse_access';
+// >>> افزوده شد: همگام‌سازی آفلاین — آخرین زمان همگام‌سازی موفق (رشته‌ی شمسی آماده از سرور)
+var LS_LAST_SYNC = 'wh_scanner_last_sync';
+// <<< پایان بخش افزوده‌شده
 
 var state = {
   serverUrl: localStorage.getItem(LS_SERVER) || '',
@@ -87,6 +90,216 @@ function clearIdFromUrl() {
     window.history.replaceState({}, '', url.pathname + (url.search ? url.search : ''));
   } catch (e) {}
 }
+
+// ===================== همگام‌سازی آفلاین (Offline-First Sync) =====================
+// این بخش کاملاً افزوده است و هیچ تابع/رفتار موجودی را تغییر نمی‌دهد؛ فقط وقتی که
+// اتصال قطع باشد یا ناپایدار باشد، وارد عمل می‌شود (ثبت شمارش + ویرایش وزن/قفسه).
+
+// شناسه‌ی یکتای واقعی (UUID v4) برای هر عملیات — استفاده در صف آفلاین و idempotency سمت سرور
+function genUuid() {
+  if (window.crypto && typeof window.crypto.randomUUID === 'function') return window.crypto.randomUUID();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+    var r = (Math.random() * 16) | 0, v = c === 'x' ? r : ((r & 0x3) | 0x8);
+    return v.toString(16);
+  });
+}
+
+function isOnline() {
+  return typeof navigator.onLine === 'boolean' ? navigator.onLine : true;
+}
+
+// ---------- IndexedDB: صف عملیات آفلاین + کش کالا/قفسه ----------
+var SyncDB = (function () {
+  var DB_NAME = 'wh_scanner_sync_db';
+  var DB_VERSION = 1;
+  var dbPromise = null;
+
+  function open() {
+    if (dbPromise) return dbPromise;
+    dbPromise = new Promise(function (resolve, reject) {
+      if (!('indexedDB' in window)) { reject(new Error('IndexedDB در این مرورگر در دسترس نیست.')); return; }
+      var req = indexedDB.open(DB_NAME, DB_VERSION);
+      req.onupgradeneeded = function (e) {
+        var db = e.target.result;
+        if (!db.objectStoreNames.contains('queue')) db.createObjectStore('queue', { keyPath: 'clientOpId' });
+        if (!db.objectStoreNames.contains('cache')) db.createObjectStore('cache', { keyPath: 'key' });
+      };
+      req.onsuccess = function (e) { resolve(e.target.result); };
+      req.onerror = function () { reject(req.error || new Error('خطا در باز کردن پایگاه‌داده‌ی محلی.')); };
+    });
+    return dbPromise;
+  }
+
+  function withStore(storeName, mode) {
+    return open().then(function (db) {
+      return db.transaction(storeName, mode).objectStore(storeName);
+    });
+  }
+
+  function enqueue(op) {
+    return withStore('queue', 'readwrite').then(function (store) {
+      return new Promise(function (resolve, reject) {
+        var req = store.put(op);
+        req.onsuccess = function () { resolve(op); };
+        req.onerror = function () { reject(req.error); };
+      });
+    });
+  }
+
+  function removeFromQueue(clientOpId) {
+    return withStore('queue', 'readwrite').then(function (store) {
+      return new Promise(function (resolve, reject) {
+        var req = store.delete(clientOpId);
+        req.onsuccess = function () { resolve(); };
+        req.onerror = function () { reject(req.error); };
+      });
+    });
+  }
+
+  function listQueue() {
+    return withStore('queue', 'readonly').then(function (store) {
+      return new Promise(function (resolve, reject) {
+        var items = [];
+        var req = store.openCursor();
+        req.onsuccess = function (e) {
+          var cursor = e.target.result;
+          if (cursor) { items.push(cursor.value); cursor.continue(); } else resolve(items);
+        };
+        req.onerror = function () { reject(req.error); };
+      });
+    });
+  }
+
+  function cacheSet(key, value, ttlMs) {
+    return withStore('cache', 'readwrite').then(function (store) {
+      return new Promise(function (resolve, reject) {
+        var req = store.put({ key: key, value: value, expiresAt: Date.now() + (ttlMs || 0) });
+        req.onsuccess = function () { resolve(); };
+        req.onerror = function () { reject(req.error); };
+      });
+    });
+  }
+
+  function cacheGet(key) {
+    return withStore('cache', 'readonly').then(function (store) {
+      return new Promise(function (resolve, reject) {
+        var req = store.get(key);
+        req.onsuccess = function () {
+          var rec = req.result;
+          if (!rec) { resolve(null); return; }
+          resolve({ value: rec.value, expired: !!(rec.expiresAt && rec.expiresAt < Date.now()) });
+        };
+        req.onerror = function () { reject(req.error); };
+      });
+    });
+  }
+
+  return {
+    enqueue: enqueue,
+    removeFromQueue: removeFromQueue,
+    updateQueueItem: enqueue, // put جایگزین می‌کند، پس برای به‌روزرسانی هم کافی است
+    listQueue: listQueue,
+    cacheSet: cacheSet,
+    cacheGet: cacheGet
+  };
+})();
+
+// ---------- نوار وضعیت آنلاین/آفلاین + همگام‌سازی ----------
+var syncState = { pendingCount: 0, syncing: false };
+
+function renderSyncBar() {
+  var bar = document.getElementById('syncBar');
+  if (!bar) return;
+  var online = isOnline();
+  var dotColor = online ? '#1a7f37' : '#c53030';
+  var lastSync = localStorage.getItem(LS_LAST_SYNC) || '—';
+  bar.innerHTML =
+    '<div style="display:flex;align-items:center;gap:8px;padding:7px 12px;background:#f4f6f8;border-bottom:1px solid #e4e7ea;font-size:11.5px;flex-wrap:wrap;">' +
+      '<span style="width:9px;height:9px;border-radius:50%;background:' + dotColor + ';display:inline-block;flex:none;"></span>' +
+      '<span style="font-weight:700;color:' + dotColor + ';">' + (online ? 'آنلاین' : 'آفلاین') + '</span>' +
+      (syncState.pendingCount ? '<span style="color:#a15c00;font-weight:700;">' + syncState.pendingCount + ' در صف ارسال</span>' : '') +
+      '<span style="color:#5a6472;">آخرین همگام‌سازی: ' + escapeHtml(lastSync) + '</span>' +
+      '<button type="button" id="syncNowBtn" onclick="syncNow()" style="margin-inline-start:auto;border:1px solid #0f4c81;color:#0f4c81;background:#fff;border-radius:8px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;"' + (syncState.syncing ? ' disabled' : '') + '>' +
+        (syncState.syncing ? 'در حال ارسال...' : 'همگام‌سازی اکنون') +
+      '</button>' +
+    '</div>';
+}
+
+function refreshPendingCount() {
+  SyncDB.listQueue().then(function (items) {
+    syncState.pendingCount = items.length;
+    renderSyncBar();
+  }).catch(function () {});
+}
+
+var MAX_SYNC_BATCH_SIZE = 20;
+var MAX_SYNC_RETRY = 8;
+
+// ارسال دسته‌ای صفِ عملیات‌های ذخیره‌شده‌ی محلی به سرور — یک درخواست به‌جای چند درخواست
+function syncNow() {
+  if (syncState.syncing) return;
+  if (!state.token) return; // هنوز وارد نشده
+  if (!isOnline()) { showToast('اتصال اینترنت برقرار نیست', true); return; }
+
+  SyncDB.listQueue().then(function (items) {
+    if (!items.length) {
+      showToast('چیزی برای همگام‌سازی نیست');
+      refreshPendingCount();
+      return;
+    }
+    syncState.syncing = true;
+    renderSyncBar();
+
+    var batch = items.slice(0, MAX_SYNC_BATCH_SIZE);
+    var ops = batch.map(function (op) {
+      return {
+        clientOpId: op.clientOpId, type: op.type, code: op.code,
+        qty: op.qty, note: op.note, warehouse: op.warehouse,
+        unitWeight: op.unitWeight, shelfCode: op.shelfCode
+      };
+    });
+
+    apiCall('apiBatchSync', { token: state.token, ops: JSON.stringify(ops) }).then(function (res) {
+      syncState.syncing = false;
+      if (handleIfSessionExpired(res)) { renderSyncBar(); return; }
+      if (!res.success) {
+        showToast(res.message || 'خطا در همگام‌سازی', true);
+        renderSyncBar();
+        return;
+      }
+      var results = res.results || [];
+      var okCount = 0, failCount = 0;
+      var chain = Promise.resolve();
+      results.forEach(function (r) {
+        chain = chain.then(function () {
+          if (r.success) {
+            okCount++;
+            return SyncDB.removeFromQueue(r.clientOpId);
+          }
+          failCount++;
+          var original = batch.filter(function (b) { return b.clientOpId === r.clientOpId; })[0];
+          if (!original) return;
+          original.retryCount = (original.retryCount || 0) + 1;
+          original.lastError = r.message || '';
+          if (original.retryCount >= MAX_SYNC_RETRY) original.failed = true;
+          return SyncDB.updateQueueItem(original);
+        });
+      });
+      chain.then(function () {
+        if (res.serverTime) localStorage.setItem(LS_LAST_SYNC, res.serverTime);
+        refreshPendingCount();
+        if (okCount) showToast('✓ ' + okCount + ' مورد همگام‌سازی شد' + (failCount ? (' — ' + failCount + ' ناموفق') : ''));
+        else if (failCount) showToast('همگام‌سازی ناموفق بود؛ دوباره تلاش می‌شود', true);
+        if (items.length > batch.length && isOnline()) setTimeout(syncNow, 400);
+      });
+    }).catch(function (err) {
+      syncState.syncing = false;
+      renderSyncBar();
+      showToast('خطا در همگام‌سازی: ' + err.message, true);
+    });
+  }).catch(function () {});
+}
+// ===================== پایان بخش همگام‌سازی آفلاین =====================
 
 // ===================== ارتباط با سرور (JSONP - بدون نیاز به CORS) =====================
 var jsonpCounter = 0;
@@ -213,6 +426,12 @@ function enterApp() {
   var shelvesBtn = document.getElementById('shelvesNavBtn');
   if (shelvesBtn) shelvesBtn.style.display = state.warehouseAccess ? '' : 'none';
   showScreen('mainScreen');
+
+  // >>> افزوده شد: نمایش نوار همگام‌سازی + تلاش خودکار برای ارسال هر عملیات باقیمانده از جلسه‌ی قبل
+  renderSyncBar();
+  refreshPendingCount();
+  if (isOnline()) syncNow();
+  // <<< پایان بخش افزوده‌شده
 
   if (pendingId) {
     var idToOpen = pendingId;
@@ -342,7 +561,18 @@ function loadItemsJson() {
     })
     .then(function (data) {
       itemsJsonCache = data;
+      // >>> افزوده شد: کش محلی برای دسترسی آفلاین به پیش‌نمایش کالا
+      SyncDB.cacheSet('items_json', data, 24 * 60 * 60 * 1000).catch(function () {});
+      // <<< پایان بخش افزوده‌شده
       return data;
+    })
+    .catch(function (err) {
+      // >>> افزوده شد: در صورت قطع اینترنت یا خطای شبکه، بازیابی از کش محلی
+      return SyncDB.cacheGet('items_json').then(function (rec) {
+        if (rec && rec.value) { itemsJsonCache = rec.value; return rec.value; }
+        throw err;
+      });
+      // <<< پایان بخش افزوده‌شده
     });
 }
 
@@ -399,9 +629,24 @@ function openItemDetail(code) {
       return;
     }
     currentDetail = res;
+    // >>> افزوده شد: کش محلی جزئیات کالا برای دسترسی آفلاین بعدی
+    SyncDB.cacheSet('item_' + code, res, 24 * 60 * 60 * 1000).catch(function () {});
+    // <<< پایان بخش افزوده‌شده
     renderItemDetail(res);
   }).catch(function (err) {
-    area.innerHTML = '<div class="empty-hint">' + escapeHtml(err.message) + '</div>';
+    // >>> افزوده شد: در صورت قطع/ناپایداری اینترنت، تلاش برای نمایش آخرین نسخه‌ی کش‌شده
+    SyncDB.cacheGet('item_' + code).then(function (rec) {
+      if (rec && rec.value) {
+        currentDetail = rec.value;
+        showToast('نمایش نسخه‌ی ذخیره‌شده (آفلاین)', false);
+        renderItemDetail(rec.value);
+      } else {
+        area.innerHTML = '<div class="empty-hint">' + escapeHtml(err.message) + '</div>';
+      }
+    }).catch(function () {
+      area.innerHTML = '<div class="empty-hint">' + escapeHtml(err.message) + '</div>';
+    });
+    // <<< پایان بخش افزوده‌شده
   });
 }
 
@@ -568,6 +813,26 @@ function updateDiffPreview() {
   else { el.textContent = 'کسری: ' + diff; el.className = 'diff-preview bad'; }
 }
 
+// >>> افزوده شد: صف‌کردن آفلاینِ یک شمارش (وقتی اینترنت قطع است یا ارسال آنلاین ناموفق بود)
+function queueRecordCount(itemForRecent, qty, note, warehouse) {
+  var clientOpId = genUuid();
+  var op = {
+    clientOpId: clientOpId, type: 'recordCount',
+    code: itemForRecent.code, qty: qty, note: note, warehouse: warehouse,
+    ts: Date.now(), retryCount: 0
+  };
+  return SyncDB.enqueue(op).then(function () {
+    addToRecent(itemForRecent, qty, ''); // اختلاف تا زمان همگام‌سازی با سرور نامشخص است
+    showToast('ذخیره شد؛ پس از اتصال اینترنت ارسال می‌شود');
+    document.getElementById('searchInput').value = '';
+    lastSearchResults = null;
+    currentDetail = null;
+    renderScanNextScreen();
+    refreshPendingCount();
+  });
+}
+// <<< پایان بخش افزوده‌شده
+
 function submitCount() {
   if (!currentDetail) return;
   var qtyEl = document.getElementById('qtyInput');
@@ -578,21 +843,34 @@ function submitCount() {
   if (whSelect && !warehouse) { showToast('لطفاً ابتدا انبار را انتخاب کنید', true); whSelect.focus(); return; }
   var note = (document.getElementById('noteInput') || {}).value || '';
   var btn = document.getElementById('submitCountBtn');
-  btn.disabled = true; btn.textContent = 'در حال ثبت...';
 
-  apiCall('apiRecordCount', { token: state.token, code: currentDetail.code, qty: qty, note: note, warehouse: warehouse }).then(function (res) {
+  // >>> افزوده شد: اگر اینترنت قطع است، مستقیم در صف آفلاین ذخیره کن
+  if (!isOnline()) {
+    queueRecordCount(currentDetail, qty, note, warehouse);
+    return;
+  }
+  // <<< پایان بخش افزوده‌شده
+
+  btn.disabled = true; btn.textContent = 'در حال ثبت...';
+  var itemForRecent = currentDetail;
+  var clientOpId = genUuid(); // >>> افزوده شد: شناسه‌ی یکتای عملیات، برای جلوگیری از ثبت تکراری سمت سرور
+
+  apiCall('apiRecordCount', { token: state.token, code: currentDetail.code, qty: qty, note: note, warehouse: warehouse, clientOpId: clientOpId }).then(function (res) {
     btn.disabled = false; btn.textContent = 'ثبت شمارش';
     if (handleIfSessionExpired(res)) return;
     if (!res.success) { showToast(res.message || 'خطا در ثبت', true); return; }
+    if (res.serverTime) localStorage.setItem(LS_LAST_SYNC, res.serverTime); // >>> افزوده شد
     addToRecent(currentDetail, qty, res.diff);
     showToast('✓ ثبت شد');
     document.getElementById('searchInput').value = '';
     lastSearchResults = null;
     currentDetail = null;
     renderScanNextScreen();
-  }).catch(function (err) {
+  }).catch(function () {
+    // >>> افزوده شد: اتصال ناپایدار/قطع وسط ارسال — به‌جای نمایش خطا، در صف آفلاین ذخیره کن
     btn.disabled = false; btn.textContent = 'ثبت شمارش';
-    showToast(err.message, true);
+    queueRecordCount(itemForRecent, qty, note, warehouse);
+    // <<< پایان بخش افزوده‌شده
   });
 }
 
@@ -605,6 +883,22 @@ function toggleWeightShelfEdit() {
   var btn = document.getElementById('toggleWeightShelfBtn');
   if (btn) btn.textContent = open ? 'ویرایش وزن / قفسه' : 'انصراف از ویرایش';
 }
+
+// >>> افزوده شد: صف‌کردن آفلاینِ ویرایش وزن/قفسه (وقتی اینترنت قطع است یا ارسال آنلاین ناموفق بود)
+// چون محاسبه‌ی وزن کل و بار قفسه فقط سمت سرور انجام می‌شود، در حالت آفلاین نمی‌توان صفحه‌ی
+// جزئیات را با مقادیر نهایی به‌روز کرد؛ فقط عملیات صف می‌شود تا پس از اتصال روی سرور اعمال شود.
+function queueUpdateWeightShelf(itemCode, unitWeight, shelfCode) {
+  var clientOpId = genUuid();
+  var op = {
+    clientOpId: clientOpId, type: 'updateWeightShelf',
+    code: itemCode, unitWeight: unitWeight, shelfCode: shelfCode,
+    ts: Date.now(), retryCount: 0
+  };
+  return SyncDB.enqueue(op).then(function () {
+    refreshPendingCount();
+  });
+}
+// <<< پایان بخش افزوده‌شده
 
 function submitWeightShelf() {
   if (!currentDetail) return;
@@ -619,15 +913,30 @@ function submitWeightShelf() {
     msg.textContent = 'وزن واحد باید عددی نامنفی باشد.'; msg.className = 'diff-preview bad'; return;
   }
 
+  // >>> افزوده شد: اگر اینترنت قطع است، مستقیم در صف آفلاین ذخیره کن
+  if (!isOnline()) {
+    var codeOffline = currentDetail.code;
+    queueUpdateWeightShelf(codeOffline, unitWeight, shelfCode).then(function () {
+      msg.textContent = 'ذخیره شد؛ پس از اتصال اینترنت اعمال می‌شود.';
+      msg.className = 'diff-preview ok';
+      showToast('در صف ارسال قرار گرفت');
+    });
+    return;
+  }
+  // <<< پایان بخش افزوده‌شده
+
   btn.disabled = true; btn.textContent = 'در حال ذخیره...';
   msg.textContent = ''; msg.className = 'diff-preview';
+  var codeForQueue = currentDetail.code;
+  var clientOpId = genUuid(); // >>> افزوده شد: شناسه‌ی یکتای عملیات، برای جلوگیری از اعمال تکراری سمت سرور
 
   // توجه: محاسبه‌ی وزن کل و اعتبارسنجی قفسه فقط سمت سرور انجام می‌شود؛
   // اینجا فقط مقادیر خام کاربر ارسال و نتیجه‌ی آماده‌ی سرور نمایش داده می‌شود.
-  apiCall('apiUpdateItemWeightShelf', { token: state.token, code: currentDetail.code, unitWeight: unitWeight, shelfCode: shelfCode }).then(function (res) {
+  apiCall('apiUpdateItemWeightShelf', { token: state.token, code: currentDetail.code, unitWeight: unitWeight, shelfCode: shelfCode, clientOpId: clientOpId }).then(function (res) {
     btn.disabled = false; btn.textContent = 'ذخیره تغییرات';
     if (handleIfSessionExpired(res)) return;
     if (!res.success) { msg.textContent = res.message || 'خطا در ذخیره.'; msg.className = 'diff-preview bad'; return; }
+    if (res.serverTime) localStorage.setItem(LS_LAST_SYNC, res.serverTime); // >>> افزوده شد
 
     currentDetail.unitWeight = res.unitWeight;
     currentDetail.shelfCode = res.shelfCode;
@@ -640,9 +949,14 @@ function submitWeightShelf() {
 
     showToast('تغییرات ذخیره شد.', false);
     renderItemDetail(currentDetail); // بازسازی کامل صفحه‌ی جزئیات تا پنل ظرفیت قفسه هم تازه شود
-  }).catch(function (err) {
+  }).catch(function () {
+    // >>> افزوده شد: اتصال ناپایدار/قطع وسط ارسال — به‌جای نمایش خطا، در صف آفلاین ذخیره کن
     btn.disabled = false; btn.textContent = 'ذخیره تغییرات';
-    msg.textContent = 'خطا: ' + err.message; msg.className = 'diff-preview bad';
+    queueUpdateWeightShelf(codeForQueue, unitWeight, shelfCode).then(function () {
+      msg.textContent = 'اتصال ناپایدار بود؛ در صف ارسال قرار گرفت.';
+      msg.className = 'diff-preview ok';
+    });
+    // <<< پایان بخش افزوده‌شده
   });
 }
 
@@ -669,9 +983,23 @@ function openShelvesList() {
   apiCall('apiListShelvesWithLoad', { token: state.token }).then(function (res) {
     if (handleIfSessionExpired(res)) return;
     if (!res.success) { area.innerHTML = '<div class="empty-hint">' + escapeHtml(res.message || 'خطا در دریافت اطلاعات قفسه‌ها.') + '</div>'; return; }
+    // >>> افزوده شد: کش محلی فهرست قفسه‌ها برای دسترسی آفلاین
+    SyncDB.cacheSet('shelves_list', res.shelves || [], 24 * 60 * 60 * 1000).catch(function () {});
+    // <<< پایان بخش افزوده‌شده
     renderShelvesList(res.shelves || []);
   }).catch(function (err) {
-    area.innerHTML = '<div class="empty-hint">خطا: ' + escapeHtml(err.message) + '</div>';
+    // >>> افزوده شد: در صورت قطع اینترنت، تلاش برای نمایش آخرین نسخه‌ی کش‌شده‌ی فهرست قفسه‌ها
+    SyncDB.cacheGet('shelves_list').then(function (rec) {
+      if (rec && rec.value) {
+        showToast('نمایش نسخه‌ی ذخیره‌شده (آفلاین)', false);
+        renderShelvesList(rec.value);
+      } else {
+        area.innerHTML = '<div class="empty-hint">خطا: ' + escapeHtml(err.message) + '</div>';
+      }
+    }).catch(function () {
+      area.innerHTML = '<div class="empty-hint">خطا: ' + escapeHtml(err.message) + '</div>';
+    });
+    // <<< پایان بخش افزوده‌شده
   });
 }
 
@@ -728,9 +1056,23 @@ function openShelfDetail(code) {
   apiCall('apiGetShelfDetail', { token: state.token, shelf: code }).then(function (res) {
     if (handleIfSessionExpired(res)) return;
     if (!res.success) { area.innerHTML = '<div class="empty-hint">' + escapeHtml(res.message || 'خطا در دریافت جزئیات قفسه.') + '</div>'; return; }
+    // >>> افزوده شد: کش محلی جزئیات قفسه برای دسترسی آفلاین
+    SyncDB.cacheSet('shelf_' + code, res.shelf, 24 * 60 * 60 * 1000).catch(function () {});
+    // <<< پایان بخش افزوده‌شده
     renderShelfDetail(res.shelf);
   }).catch(function (err) {
-    area.innerHTML = '<div class="empty-hint">خطا: ' + escapeHtml(err.message) + '</div>';
+    // >>> افزوده شد: در صورت قطع اینترنت، تلاش برای نمایش آخرین نسخه‌ی کش‌شده‌ی جزئیات قفسه
+    SyncDB.cacheGet('shelf_' + code).then(function (rec) {
+      if (rec && rec.value) {
+        showToast('نمایش نسخه‌ی ذخیره‌شده (آفلاین)', false);
+        renderShelfDetail(rec.value);
+      } else {
+        area.innerHTML = '<div class="empty-hint">خطا: ' + escapeHtml(err.message) + '</div>';
+      }
+    }).catch(function () {
+      area.innerHTML = '<div class="empty-hint">خطا: ' + escapeHtml(err.message) + '</div>';
+    });
+    // <<< پایان بخش افزوده‌شده
   });
 }
 
@@ -830,6 +1172,16 @@ function renderRecentList() {
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js').catch(function () {});
 }
+
+// >>> افزوده شد: نمایش خودکار وضعیت آنلاین/آفلاین + تلاش خودکار برای ارسال صف هنگام بازگشت اینترنت
+window.addEventListener('online', function () {
+  renderSyncBar();
+  syncNow();
+});
+window.addEventListener('offline', function () {
+  renderSyncBar();
+});
+// <<< پایان بخش افزوده‌شده
 
 pendingId = readIdFromLocation();
 
