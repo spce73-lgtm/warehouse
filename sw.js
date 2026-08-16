@@ -1,62 +1,51 @@
-// Service Worker — کش پوسته‌ی برنامه (App Shell)
-// هدف: باز شدن خودِ اپ وقتی اینترنت قطع است (مشکل فعلی: بدون این فایل، مرورگر گوشی حتی
-// قبل از اجرای app.js صفحه‌ی «دسترسی به اینترنت موجود نیست» خودش را نشان می‌دهد).
-// این فایل فقط فایل‌های استاتیکِ همین ریپو (HTML/JS/CSS/آیکون) را کش می‌کند؛
-// هیچ درخواستی به Apps Script (JSONP، دامنه‌ی دیگر) را کش یا رهگیری نمی‌کند —
-// آن درخواست‌ها دقیقاً طبق منطق موجود در app.js (isOnline + Sync Queue) مدیریت می‌شوند،
-// و توکن/نشست کاربر هم فقط در localStorage است، نه در این کش.
-var CACHE_NAME = 'wh-scanner-shell-v1';
-var APP_SHELL = [
-  './',
-  './index.html',
-  './app.js',
-  './style.css',
-  './manifest.json',
-  './icon-192.png'
-];
+// اول شبکه، بعد کش (برای اینکه به‌روزرسانی‌های آینده همیشه فوری اعمال شود).
+// نسخه‌ی کش عوض شد: رفع باگِ «ورود آفلاین مسدود می‌شود».
+// >>> افزوده شد: علت واقعی مسدود شدن ورودِ آفلاین: cache.addAll در نصب، اگر فقط یکی از
+// فایل‌های SHELL_FILES (مثلاً manifest.json) در دسترس نباشد/۴۰۴ بدهد، کل addAll رد می‌شود و
+// هیچ فایلی کش نمی‌شود — یعنی SW نصب می‌شد ولی عملاً هیچ‌وقت چیزی برای آفلاین نداشت.
+// این نسخه هر فایل را جدا کش می‌کند تا نبودِ یک فایل، بقیه را خراب نکند. بقیه‌ی منطق
+// (اول شبکه/کش، عبور کامل درخواست‌های action=... به Apps Script) دقیقاً مثل قبل حفظ شده.
+// <<< پایان بخش افزوده‌شده
+var CACHE_NAME = 'wh-scanner-shell-v5';
+var SHELL_FILES = ['./', './index.html', './style.css', './app.js', './manifest.json'];
 
 self.addEventListener('install', function (event) {
-  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then(function (cache) {
-      // هر فایل جدا کش می‌شود؛ نبودِ یک فایل اختیاری (مثلاً آیکون) نباید کل نصب را خراب کند
-      return Promise.all(APP_SHELL.map(function (url) {
+      // >>> تغییر یافت: به‌جای cache.addAll(SHELL_FILES) که با شکستِ یک فایل کل نصب را
+      // خراب می‌کرد، هر فایل جدا و مقاوم در برابر خطا کش می‌شود.
+      return Promise.all(SHELL_FILES.map(function (url) {
         return cache.add(url).catch(function () {});
       }));
+      // <<< پایان تغییر
     })
   );
+  self.skipWaiting();
 });
 
 self.addEventListener('activate', function (event) {
   event.waitUntil(
-    caches.keys().then(function (names) {
-      return Promise.all(names.filter(function (n) { return n !== CACHE_NAME; }).map(function (n) { return caches.delete(n); }));
-    }).then(function () { return self.clients.claim(); })
+    caches.keys().then(function (keys) {
+      return Promise.all(keys.filter(function (k) { return k !== CACHE_NAME; }).map(function (k) { return caches.delete(k); }));
+    })
   );
+  self.clients.claim();
 });
 
 self.addEventListener('fetch', function (event) {
-  var req = event.request;
-  if (req.method !== 'GET') return; // فقط GET؛ بقیه‌ی درخواست‌ها دست‌نخورده به شبکه می‌روند
+  var url = event.request.url;
+  // درخواست‌های API (شامل action=...) هرگز کش نمی‌شوند، همیشه مستقیم از شبکه — دست‌نخورده
+  if (url.indexOf('action=') !== -1 || event.request.method !== 'GET') return;
 
-  var url = new URL(req.url);
-  // فقط درخواست‌های هم‌مبدأ (همین گیت‌هاب‌پیجز)؛ هر درخواست دیگری (از جمله JSONP به
-  // script.google.com برای لاگین/جست‌وجو/ثبت شمارش) دست‌نخورده به شبکه می‌رود
-  if (url.origin !== self.location.origin) return;
-
-  // کش-اول + به‌روزرسانی در پس‌زمینه (stale-while-revalidate)؛ ignoreSearch چون لینک‌های
-  // کیوآرکد با ?id=... باز می‌شوند و باید همان index.json کش‌شده را برگردانند
   event.respondWith(
-    caches.match(req, { ignoreSearch: true }).then(function (cached) {
-      var networkFetch = fetch(req).then(function (res) {
-        if (res && res.ok) {
-          var resClone = res.clone();
-          caches.open(CACHE_NAME).then(function (cache) { cache.put(req, resClone); });
-        }
-        return res;
-      }).catch(function () { return cached; });
-
-      return cached || networkFetch;
+    fetch(event.request).then(function (networkResponse) {
+      caches.open(CACHE_NAME).then(function (cache) { cache.put(event.request, networkResponse.clone()); });
+      return networkResponse;
+    }).catch(function () {
+      // >>> افزوده شد: ignoreSearch — لینک‌های کیوآرکد با ?id=... باز می‌شوند؛ بدون این گزینه،
+      // در حالت آفلاین با کوئری‌استرینگ هیچ تطبیقی با index.html کش‌شده پیدا نمی‌شد
+      return caches.match(event.request, { ignoreSearch: true });
+      // <<< پایان بخش افزوده‌شده
     })
   );
 });
