@@ -5,7 +5,9 @@
 // =====================================================================
 
 // ===================== حافظه‌ی محلی =====================
-var LS_SERVER = 'wh_scanner_server_url';
+// >>> افزوده شد: آدرس Apps Script ثابت و داخلیِ برنامه — دیگر از کاربر گرفته نمی‌شود
+var APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbypZ_VKrsHl2facqbeY263LQeE812J-J2kcmjtooiFfCQZJQQp00JLlc0EoCWwG4IXm/exec';
+// <<< پایان بخش افزوده‌شده
 var LS_TOKEN = 'wh_scanner_token';
 var LS_USER = 'wh_scanner_username';
 var LS_ROLE = 'wh_scanner_role';
@@ -16,7 +18,7 @@ var LS_LAST_SYNC = 'wh_scanner_last_sync';
 // <<< پایان بخش افزوده‌شده
 
 var state = {
-  serverUrl: localStorage.getItem(LS_SERVER) || '',
+  serverUrl: APPS_SCRIPT_URL, // >>> تغییر یافت: دیگر از localStorage/ورودی کاربر خوانده نمی‌شود
   token: localStorage.getItem(LS_TOKEN) || '',
   username: localStorage.getItem(LS_USER) || '',
   role: localStorage.getItem(LS_ROLE) || '',
@@ -404,36 +406,16 @@ function handleIfSessionExpired(res) {
 
 // ===================== ورود =====================
 function doLogin() {
-  var serverUrl = document.getElementById('serverUrlInput').value.trim();
   var username = document.getElementById('loginUsername').value.trim();
   var password = document.getElementById('loginPassword').value;
   var msgBox = document.getElementById('loginMsg');
   var btn = document.getElementById('loginBtn');
   msgBox.innerHTML = '';
 
-  if (!serverUrl) {
-    msgBox.innerHTML = '<div class="msg err">کادر «آدرس سامانه» خالی است. آدرس Apps Script (.../exec) را پیست کنید.</div>';
-    return;
-  }
-  if (serverUrl.indexOf('http') !== 0) {
-    msgBox.innerHTML = '<div class="msg err">آدرس سامانه باید با https:// شروع شود.</div>';
-    return;
-  }
-  if (serverUrl.indexOf('github.io') !== -1) {
-    msgBox.innerHTML = '<div class="msg err">این آدرس گیت‌هاب‌پیجز است (همین اپ)، نه آدرس Apps Script.</div>';
-    return;
-  }
-  if (serverUrl.indexOf('/exec') === -1) {
-    msgBox.innerHTML = '<div class="msg err">آدرس واردشده باید به exec ختم شود.</div>';
-    return;
-  }
   if (!username || !password) {
     msgBox.innerHTML = '<div class="msg err">نام کاربری و رمز عبور را وارد کنید.</div>';
     return;
   }
-
-  state.serverUrl = serverUrl.replace(/\/$/, '');
-  localStorage.setItem(LS_SERVER, state.serverUrl);
 
   btn.disabled = true; btn.textContent = 'در حال ورود...';
   apiCall('apiLogin', { username: username, password: password }).then(function (res) {
@@ -1340,11 +1322,6 @@ document.addEventListener('visibilitychange', function () {
 // <<< پایان بخش افزوده‌شده
 
 pendingId = readIdFromLocation();
-
-if (state.serverUrl) {
-  var serverInput = document.getElementById('serverUrlInput');
-  if (serverInput) serverInput.value = state.serverUrl;
-}
 
 if (state.token && state.username) {
   enterApp();
