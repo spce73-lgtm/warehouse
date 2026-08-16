@@ -232,6 +232,16 @@ function refreshPendingCount() {
   }).catch(function () {});
 }
 
+// >>> افزوده شد: فقط وقتی صفحه‌ی «آماده برای اسکن بعدی / لیست اخیر» باز است (نه فرم شمارش/جزئیات کالا)،
+// پس از همگام‌سازی دوباره رندر می‌شود تا نشان «در انتظار همگام‌سازی» به‌موقع پاک شود
+function maybeRefreshRecentView() {
+  var mainScreen = document.getElementById('mainScreen');
+  if (mainScreen && mainScreen.classList.contains('active') && !currentDetail && !lastSearchResults) {
+    renderRecentList();
+  }
+}
+// <<< پایان بخش افزوده‌شده
+
 var MAX_SYNC_BATCH_SIZE = 20;
 var MAX_SYNC_RETRY = 8;
 
@@ -274,6 +284,13 @@ function syncNow() {
         chain = chain.then(function () {
           if (r.success) {
             okCount++;
+            // >>> افزوده شد: پاک‌کردن نشان «در انتظار همگام‌سازی» از ردیفِ متناظر در لیست اخیر
+            var recentMatch = recentItems.filter(function (ri) { return ri.clientOpId === r.clientOpId; })[0];
+            if (recentMatch) {
+              recentMatch.pending = false;
+              if (typeof r.diff !== 'undefined') recentMatch.diff = r.diff;
+            }
+            // <<< پایان بخش افزوده‌شده
             return SyncDB.removeFromQueue(r.clientOpId);
           }
           failCount++;
@@ -290,12 +307,20 @@ function syncNow() {
         refreshPendingCount();
         if (okCount) showToast('✓ ' + okCount + ' مورد همگام‌سازی شد' + (failCount ? (' — ' + failCount + ' ناموفق') : ''));
         else if (failCount) showToast('همگام‌سازی ناموفق بود؛ دوباره تلاش می‌شود', true);
+        // >>> افزوده شد: اگر همین لحظه صفحه‌ی «اخیر» باز است، نشان‌های «در انتظار» را بلافاصله به‌روز کن
+        maybeRefreshRecentView();
+        // <<< پایان بخش افزوده‌شده
         if (items.length > batch.length && isOnline()) setTimeout(syncNow, 400);
       });
     }).catch(function (err) {
       syncState.syncing = false;
       renderSyncBar();
-      showToast('خطا در همگام‌سازی: ' + err.message, true);
+      // >>> افزوده شد: اگر واقعاً اتصال قطع است، این یک خطای واقعی نیست — فقط باید صبر کرد تا اینترنت برگردد؛
+      // پیام «تایم‌اوت سرور»/«پاسخ نداد» را در این حالت به کاربر نشان نمی‌دهیم. آیتم‌های صف همچنان دست‌نخورده باقی می‌مانند.
+      if (isOnline()) {
+        showToast('خطا در همگام‌سازی: ' + err.message, true);
+      }
+      // <<< پایان بخش افزوده‌شده
     });
   }).catch(function () {});
 }
@@ -822,13 +847,19 @@ function queueRecordCount(itemForRecent, qty, note, warehouse) {
     ts: Date.now(), retryCount: 0
   };
   return SyncDB.enqueue(op).then(function () {
-    addToRecent(itemForRecent, qty, ''); // اختلاف تا زمان همگام‌سازی با سرور نامشخص است
+    addToRecent(itemForRecent, qty, '', true, clientOpId); // pending=true تا برچسب «در انتظار همگام‌سازی» نمایش داده شود
     showToast('ذخیره شد؛ پس از اتصال اینترنت ارسال می‌شود');
     document.getElementById('searchInput').value = '';
     lastSearchResults = null;
     currentDetail = null;
     renderScanNextScreen();
     refreshPendingCount();
+  }).catch(function (err) {
+    // >>> افزوده شد: اگر خودِ IndexedDB هم در دسترس نبود (مثلاً حالت خصوصی مرورگر)، این را واقعاً به کاربر بگوییم
+    // تا داده گم نشود بدون اطلاع — به‌جای بلعیدن خطا به‌صورت خاموش
+    showToast('ذخیره‌ی محلی ناموفق بود: ' + err.message, true);
+    throw err;
+    // <<< پایان بخش افزوده‌شده
   });
 }
 // <<< پایان بخش افزوده‌شده
@@ -846,7 +877,7 @@ function submitCount() {
 
   // >>> افزوده شد: اگر اینترنت قطع است، مستقیم در صف آفلاین ذخیره کن
   if (!isOnline()) {
-    queueRecordCount(currentDetail, qty, note, warehouse);
+    queueRecordCount(currentDetail, qty, note, warehouse).catch(function () {});
     return;
   }
   // <<< پایان بخش افزوده‌شده
@@ -869,7 +900,7 @@ function submitCount() {
   }).catch(function () {
     // >>> افزوده شد: اتصال ناپایدار/قطع وسط ارسال — به‌جای نمایش خطا، در صف آفلاین ذخیره کن
     btn.disabled = false; btn.textContent = 'ثبت شمارش';
-    queueRecordCount(itemForRecent, qty, note, warehouse);
+    queueRecordCount(itemForRecent, qty, note, warehouse).catch(function () {});
     // <<< پایان بخش افزوده‌شده
   });
 }
@@ -896,6 +927,11 @@ function queueUpdateWeightShelf(itemCode, unitWeight, shelfCode) {
   };
   return SyncDB.enqueue(op).then(function () {
     refreshPendingCount();
+  }).catch(function (err) {
+    // >>> افزوده شد: عدم بلعیدن خاموشِ خطا — اگر ذخیره‌ی محلی هم شکست بخورد باید به کاربر گفته شود
+    showToast('ذخیره‌ی محلی ناموفق بود: ' + err.message, true);
+    throw err;
+    // <<< پایان بخش افزوده‌شده
   });
 }
 // <<< پایان بخش افزوده‌شده
@@ -920,7 +956,7 @@ function submitWeightShelf() {
       msg.textContent = 'ذخیره شد؛ پس از اتصال اینترنت اعمال می‌شود.';
       msg.className = 'diff-preview ok';
       showToast('در صف ارسال قرار گرفت');
-    });
+    }).catch(function () { /* پیام خطا قبلاً در queueUpdateWeightShelf نمایش داده شد */ });
     return;
   }
   // <<< پایان بخش افزوده‌شده
@@ -1138,10 +1174,13 @@ function renderScanNextScreen() {
 }
 
 // ===================== لیست اخیر =====================
-function addToRecent(item, qty, diff) {
-  recentItems.unshift({ name: item.name, code: item.code, qty: qty, diff: diff });
+// >>> افزوده شد: پارامترهای pending/clientOpId — برای نمایش «در انتظار همگام‌سازی» و
+// به‌روزرسانی همین ردیف پس از موفقیت همگام‌سازی (بدون تغییر رفتار فراخوانی‌های قبلی)
+function addToRecent(item, qty, diff, pending, clientOpId) {
+  recentItems.unshift({ name: item.name, code: item.code, qty: qty, diff: diff, pending: !!pending, clientOpId: clientOpId || null });
   if (recentItems.length > 15) recentItems.pop();
 }
+// <<< پایان بخش افزوده‌شده
 
 function buildRecentListHtml() {
   if (recentItems.length === 0) {
@@ -1156,8 +1195,11 @@ function buildRecentListHtml() {
       else if (it.diff < 0) { diffTxt = String(it.diff); diffClass = 'minus'; }
       else { diffTxt = '۰'; }
     }
+    // >>> افزوده شد: نشان «در انتظار همگام‌سازی» برای موارد ذخیره‌شده‌ی آفلاین که هنوز به سرور نرسیده‌اند
+    var pendingBadge = it.pending ? ' <span style="color:#a15c00;font-weight:700;font-size:11px;">(در انتظار همگام‌سازی)</span>' : '';
+    // <<< پایان بخش افزوده‌شده
     html += '<div class="recent-item"><span><b>' + escapeHtml(it.name) + '</b> — ' + escapeHtml(it.code) + '</span>' +
-      '<span>شمارش: ' + escapeHtml(it.qty) + (diffTxt ? ' <span class="diff ' + diffClass + '">(' + diffTxt + ')</span>' : '') + '</span></div>';
+      '<span>شمارش: ' + escapeHtml(it.qty) + (diffTxt ? ' <span class="diff ' + diffClass + '">(' + diffTxt + ')</span>' : '') + pendingBadge + '</span></div>';
   });
   return html;
 }
