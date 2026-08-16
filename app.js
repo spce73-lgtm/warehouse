@@ -232,6 +232,23 @@ function refreshPendingCount() {
   }).catch(function () {});
 }
 
+// >>> افزوده شد: کش کامل داده‌ی آفلاین (کالاها + قفسه‌ها) — یک درخواست دسته‌ای، بدون تصویر
+// این تابع فقط وقتی آنلاین هستیم و کاربر وارد شده اجرا می‌شود؛ در غیر این صورت بی‌اثر است
+// و هیچ درخواست غیرضروری به سرور ارسال نمی‌کند.
+function refreshOfflineCache() {
+  if (!state.token || !isOnline()) return Promise.resolve();
+  return apiCall('apiOfflineIndex', { token: state.token }).then(function (res) {
+    if (!res || !res.success) return;
+    var tasks = [SyncDB.cacheSet('offline_items_index', res.items || [], 24 * 60 * 60 * 1000)];
+    if (res.shelves) tasks.push(SyncDB.cacheSet('shelves_list', res.shelves, 24 * 60 * 60 * 1000));
+    return Promise.all(tasks).then(function () {
+      if (res.serverTime) localStorage.setItem(LS_LAST_SYNC, res.serverTime);
+      renderSyncBar();
+    });
+  }).catch(function () { /* به‌روزرسانی کش آفلاین، best-effort است؛ نبود آن نباید کاربر را متوقف کند */ });
+}
+// <<< پایان بخش افزوده‌شده
+
 // >>> افزوده شد: فقط وقتی صفحه‌ی «آماده برای اسکن بعدی / لیست اخیر» باز است (نه فرم شمارش/جزئیات کالا)،
 // پس از همگام‌سازی دوباره رندر می‌شود تا نشان «در انتظار همگام‌سازی» به‌موقع پاک شود
 function maybeRefreshRecentView() {
@@ -250,6 +267,10 @@ function syncNow() {
   if (syncState.syncing) return;
   if (!state.token) return; // هنوز وارد نشده
   if (!isOnline()) { showToast('اتصال اینترنت برقرار نیست', true); return; }
+
+  // >>> افزوده شد: همراه با هر Sync (خودکار یا دستی)، کش داده‌ی آفلاین هم به‌روزرسانی می‌شود
+  refreshOfflineCache();
+  // <<< پایان بخش افزوده‌شده
 
   SyncDB.listQueue().then(function (items) {
     if (!items.length) {
@@ -476,12 +497,52 @@ if (searchInputEl) {
   });
 }
 
+// >>> افزوده شد: جست‌وجوی محلی از کش آفلاین IndexedDB (وقتی اینترنت نیست یا apiSearch شکست بخورد)
+function searchOfflineIndex(q) {
+  var area = document.getElementById('resultArea');
+  SyncDB.cacheGet('offline_items_index').then(function (rec) {
+    var items = (rec && rec.value) ? rec.value : [];
+    if (!items.length) {
+      area.innerHTML = '<div class="empty-hint">اتصال اینترنت برقرار نیست و داده‌ای برای جست‌وجوی آفلاین ذخیره نشده است. لطفاً یک‌بار وقتی آنلاین هستید وارد شوید.</div>';
+      return;
+    }
+    var qNorm = String(q || '').trim().toLowerCase();
+    var results = items.filter(function (it) {
+      return (it.code && String(it.code).toLowerCase().indexOf(qNorm) !== -1) ||
+             (it.name && String(it.name).toLowerCase().indexOf(qNorm) !== -1);
+    }).slice(0, 50).map(function (it) {
+      return { code: it.code, name: it.name, qty: it.systemQty };
+    });
+    lastSearchResults = results;
+    lastSearchQuery = q;
+    if (!results.length) {
+      area.innerHTML = '<div class="empty-hint">چیزی با «' + escapeHtml(q) + '» در داده‌ی محلی (آفلاین) پیدا نشد.</div>';
+    } else if (results.length === 1) {
+      openItemDetail(results[0].code);
+    } else {
+      renderResultsList(results, q);
+      showToast('نمایش نتایج از داده‌ی محلی (آفلاین)', false);
+    }
+  }).catch(function () {
+    area.innerHTML = '<div class="empty-hint">اتصال اینترنت برقرار نیست.</div>';
+  });
+}
+// <<< پایان بخش افزوده‌شده
+
 function doSearch() {
   var raw = document.getElementById('searchInput').value.trim();
   if (!raw) { showToast('چیزی برای جست‌وجو تایپ کنید', true); return; }
   var q = extractItemCode(raw);
 
   var area = document.getElementById('resultArea');
+
+  // >>> افزوده شد: اگر اینترنت قطع است، مستقیم از کش آفلاین جست‌وجو کن (بدون تلاش برای apiCall)
+  if (!isOnline()) {
+    searchOfflineIndex(q);
+    return;
+  }
+  // <<< پایان بخش افزوده‌شده
+
   area.innerHTML = '<div class="lookup-loading"><div class="spinner"></div> در حال جست‌وجو...</div>';
 
   apiCall('apiSearch', { token: state.token, q: q }).then(function (res) {
@@ -500,8 +561,10 @@ function doSearch() {
     } else {
       renderResultsList(results, q);
     }
-  }).catch(function (err) {
-    area.innerHTML = '<div class="empty-hint">' + escapeHtml(err.message) + '</div>';
+  }).catch(function () {
+    // >>> افزوده شد: اتصال ناپایدار/قطع وسط جست‌وجو — به‌جای نمایش خطا، از کش آفلاین جست‌وجو کن
+    searchOfflineIndex(q);
+    // <<< پایان بخش افزوده‌شده
   });
 }
 
@@ -641,8 +704,65 @@ function goLoginKeepPending(code) {
 }
 
 // ===================== جزئیات کامل کالا =====================
+// >>> افزوده شد: نمایش جزئیات کالا از کش آفلاین — اول جزئیات کامل قبلاً کش‌شده (item_<code>)،
+// در نبود آن از خلاصه‌ی فهرست آفلاینِ کالاها (offline_items_index) که در refreshOfflineCache
+// ذخیره شده استفاده می‌شود (پس حتی کالایی که هرگز قبلاً باز نشده هم آفلاین قابل مشاهده است).
+function showItemFromOfflineCache(code, area, fallbackMsg) {
+  SyncDB.cacheGet('item_' + code).then(function (rec) {
+    if (rec && rec.value) {
+      currentDetail = rec.value;
+      showToast('نمایش نسخه‌ی ذخیره‌شده (آفلاین)', false);
+      renderItemDetail(rec.value);
+      return;
+    }
+    SyncDB.cacheGet('offline_items_index').then(function (idxRec) {
+      var items = (idxRec && idxRec.value) ? idxRec.value : [];
+      var found = items.filter(function (it) { return String(it.code) === String(code); })[0];
+      if (!found) {
+        area.innerHTML =
+          '<button class="back-link" onclick="backToSearch()">‹ بازگشت به جست‌وجو</button>' +
+          '<div class="empty-hint">' + escapeHtml(fallbackMsg || 'اتصال اینترنت برقرار نیست و این کالا در داده‌ی محلی موجود نیست.') + '</div>';
+        return;
+      }
+      var minimal = {
+        success: true, code: found.code, name: found.name, systemQty: found.systemQty,
+        images: [], fields: [], warehouses: found.warehouses || [], lastCount: null
+      };
+      // فیلدهای وزن/قفسه فقط برای کاربرانی که دسترسی انبار دارند در فهرست آفلاین ذخیره شده‌اند
+      if (state.warehouseAccess && found.shelfCode !== undefined) {
+        minimal.unitWeight = found.unitWeight;
+        minimal.shelfCode = found.shelfCode;
+        minimal.shelf = null;
+        minimal.totalWeight = null;
+        minimal.unitWeightDisplay = (found.unitWeight !== '' && found.unitWeight != null) ? (String(found.unitWeight) + ' kg') : 'ثبت‌نشده';
+        minimal.totalWeightDisplay = '—';
+        minimal.shelfDisplay = found.shelfCode || 'تعیین‌نشده';
+        minimal.shelfLoad = null; // آفلاین: بار زنده‌ی قفسه قابل محاسبه نیست، فقط پس از اتصال به‌روز می‌شود
+        minimal.activeShelves = [];
+      }
+      currentDetail = minimal;
+      showToast('نمایش نسخه‌ی خلاصه از داده‌ی محلی (آفلاین)', false);
+      renderItemDetail(minimal);
+    }).catch(function () {
+      area.innerHTML = '<div class="empty-hint">' + escapeHtml(fallbackMsg || 'اتصال اینترنت برقرار نیست.') + '</div>';
+    });
+  }).catch(function () {
+    area.innerHTML = '<div class="empty-hint">' + escapeHtml(fallbackMsg || 'اتصال اینترنت برقرار نیست.') + '</div>';
+  });
+}
+// <<< پایان بخش افزوده‌شده
+
 function openItemDetail(code) {
   var area = document.getElementById('resultArea');
+
+  // >>> افزوده شد: اگر اینترنت قطع است، مستقیم از کش آفلاین بخوان (بدون تلاش برای apiCall)
+  if (!isOnline()) {
+    area.innerHTML = '<div class="lookup-loading"><div class="spinner"></div> در حال بارگذاری از داده‌ی محلی...</div>';
+    showItemFromOfflineCache(code, area);
+    return;
+  }
+  // <<< پایان بخش افزوده‌شده
+
   area.innerHTML = '<div class="lookup-loading"><div class="spinner"></div> در حال دریافت مشخصات کالا...</div>';
 
   apiCall('apiLookup', { token: state.token, code: code }).then(function (res) {
@@ -660,17 +780,7 @@ function openItemDetail(code) {
     renderItemDetail(res);
   }).catch(function (err) {
     // >>> افزوده شد: در صورت قطع/ناپایداری اینترنت، تلاش برای نمایش آخرین نسخه‌ی کش‌شده
-    SyncDB.cacheGet('item_' + code).then(function (rec) {
-      if (rec && rec.value) {
-        currentDetail = rec.value;
-        showToast('نمایش نسخه‌ی ذخیره‌شده (آفلاین)', false);
-        renderItemDetail(rec.value);
-      } else {
-        area.innerHTML = '<div class="empty-hint">' + escapeHtml(err.message) + '</div>';
-      }
-    }).catch(function () {
-      area.innerHTML = '<div class="empty-hint">' + escapeHtml(err.message) + '</div>';
-    });
+    showItemFromOfflineCache(code, area, isOnline() ? err.message : null);
     // <<< پایان بخش افزوده‌شده
   });
 }
@@ -1222,6 +1332,10 @@ window.addEventListener('online', function () {
 });
 window.addEventListener('offline', function () {
   renderSyncBar();
+});
+// بازگشت به اپ پس از پس‌زمینه (مثلاً کاربر برنامه را مینیمایز کرده و برگشته) — تلاش برای Sync/تازه‌سازی کش
+document.addEventListener('visibilitychange', function () {
+  if (!document.hidden && state.token && isOnline()) syncNow();
 });
 // <<< پایان بخش افزوده‌شده
 
