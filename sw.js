@@ -5,10 +5,11 @@
 // هیچ درخواستی به Apps Script (JSONP، دامنه‌ی دیگر) را کش یا رهگیری نمی‌کند —
 // آن درخواست‌ها دقیقاً طبق منطق موجود در app.js (isOnline + Sync Queue) مدیریت می‌شوند،
 // و توکن/نشست کاربر هم فقط در localStorage است، نه در این کش.
-// >>> افزوده شد: نسخه‌ی کش به v2 ارتقا یافت — تغییرات اخیر (app.js/index.html) را مجبور می‌کند
-// دوباره از شبکه دریافت شوند به‌جای نسخه‌ی قدیمیِ گیرافتاده در کش مرورگر (Stale Cache)؛ این
-// شایع‌ترین علتِ واقعیِ «کار نکردن دکمه‌ی ورود بعد از آپدیت فایل‌ها» در اپ‌های PWA است. تغییر
-// نام کش باعث می‌شود activate handler زیر (که کش‌های قدیمی را پاک می‌کند) خودش کش v1 را حذف کند.
+// >>> افزوده شد: نسخه‌ی کش به v3 ارتقا یافت — علت این‌بار رفعِ باگ ورود در app.js بود (فیلد
+// حذف‌شده‌ی #serverUrlInput). چون استراتژی fetch این فایل «کش-اول» است، بدون تغییر نام کش،
+// کاربرانی که نسخه‌ی خراب را از قبل کش کرده‌اند تا یک چرخه‌ی تازه‌سازیِ پس‌زمینه‌ی دیگر همان
+// نسخه‌ی خراب را می‌بینند؛ تغییر نام کش باعث می‌شود activate handler زیر بلافاصله کش قدیمی
+// (v2) را پاک کند و نسخه‌ی تازه از شبکه گرفته شود.
 var CACHE_NAME = 'wh-scanner-shell-v3';
 // <<< پایان بخش افزوده‌شده
 var APP_SHELL = [
@@ -51,27 +52,17 @@ self.addEventListener('fetch', function (event) {
 
   // کش-اول + به‌روزرسانی در پس‌زمینه (stale-while-revalidate)؛ ignoreSearch چون لینک‌های
   // کیوآرکد با ?id=... باز می‌شوند و باید همان index.json کش‌شده را برگردانند
-  // >>> اصلاح شد: قبلاً caches.match(req,...) بدون مشخص‌کردن نام کش استفاده می‌شد؛ این متد به‌صورت
-  // سراسری در همه‌ی کش‌های این origin (از جمله نسخه‌های قدیمی‌ای که هنوز activate آن‌ها را پاک
-  // نکرده) جست‌وجو می‌کند و ممکن است یک پاسخِ قدیمی/ناهماهنگ از یک نسخه‌ی کش پیشین را برگرداند —
-  // این دقیقاً همان چیزی است که می‌تواند باعث شود حتی بعد از ارتقای CACHE_NAME، مرورگر همچنان
-  // نسخه‌ی قدیمیِ app.js/index.html را نشان دهد و دکمه‌ی ورود «بدون واکنش» به نظر برسد.
-  // اصلاح: جست‌وجو را صریحاً به کشِ همین نسخه (CACHE_NAME) محدود می‌کنیم تا هرگز پاسخی از یک
-  // نسخه‌ی قدیمی برگردانده نشود.
   event.respondWith(
-    caches.open(CACHE_NAME).then(function (cache) {
-      return cache.match(req, { ignoreSearch: true }).then(function (cached) {
-        var networkFetch = fetch(req).then(function (res) {
-          if (res && res.ok) {
-            var resClone = res.clone();
-            cache.put(req, resClone);
-          }
-          return res;
-        }).catch(function () { return cached; });
+    caches.match(req, { ignoreSearch: true }).then(function (cached) {
+      var networkFetch = fetch(req).then(function (res) {
+        if (res && res.ok) {
+          var resClone = res.clone();
+          caches.open(CACHE_NAME).then(function (cache) { cache.put(req, resClone); });
+        }
+        return res;
+      }).catch(function () { return cached; });
 
-        return cached || networkFetch;
-      });
+      return cached || networkFetch;
     })
   );
-  // <<< پایان بخش اصلاح‌شده
 });
