@@ -240,23 +240,7 @@ function refreshOfflineCache() {
   return apiCall('apiOfflineIndex', { token: state.token }).then(function (res) {
     if (!res || !res.success) return;
     var tasks = [SyncDB.cacheSet('offline_items_index', res.items || [], 24 * 60 * 60 * 1000)];
-    if (res.shelves) {
-      tasks.push(SyncDB.cacheSet('shelves_list', res.shelves, 24 * 60 * 60 * 1000));
-      // >>> افزوده شد: فهرست قفسه‌های «فعال» (کد+محل) — برای پر کردن کشویی قفسه در ویرایش
-      // آفلاینِ وزن/قفسه، بدون نیاز به درخواست جداگانه‌ی apiListActiveShelves
-      var activeShelvesList = res.shelves.filter(function (s) { return s.status === 'فعال'; })
-        .map(function (s) { return { code: s.code, location: s.location || '' }; });
-      tasks.push(SyncDB.cacheSet('active_shelves_list', activeShelvesList, 24 * 60 * 60 * 1000));
-      // <<< پایان بخش افزوده‌شده
-    }
-    // >>> افزوده شد: جزئیات کامل هر قفسه (شامل فهرست کالاهای روی آن) — تا صفحه‌ی «قفسه‌ها» برای
-    // هر قفسه‌ای (نه فقط قفسه‌های قبلاً بازشده) به‌طور کامل آفلاین در دسترس باشد
-    if (res.shelfDetails && res.shelfDetails.length) {
-      res.shelfDetails.forEach(function (sd) {
-        tasks.push(SyncDB.cacheSet('shelf_' + sd.code, sd, 24 * 60 * 60 * 1000));
-      });
-    }
-    // <<< پایان بخش افزوده‌شده
+    if (res.shelves) tasks.push(SyncDB.cacheSet('shelves_list', res.shelves, 24 * 60 * 60 * 1000));
     return Promise.all(tasks).then(function () {
       if (res.serverTime) localStorage.setItem(LS_LAST_SYNC, res.serverTime);
       renderSyncBar();
@@ -740,13 +724,10 @@ function showItemFromOfflineCache(code, area, fallbackMsg) {
           '<div class="empty-hint">' + escapeHtml(fallbackMsg || 'اتصال اینترنت برقرار نیست و این کالا در داده‌ی محلی موجود نیست.') + '</div>';
         return;
       }
-      // >>> افزوده شد: فیلدهای توصیفی و آخرین شمارش حالا در offline_items_index موجودند
-      // (فقط تصویر ندارند، طبق نیاز — تصاویر آفلاین لازم نیستند)
       var minimal = {
         success: true, code: found.code, name: found.name, systemQty: found.systemQty,
-        images: [], fields: found.fields || [], warehouses: found.warehouses || [], lastCount: found.lastCount || null
+        images: [], fields: [], warehouses: found.warehouses || [], lastCount: null
       };
-      // <<< پایان بخش افزوده‌شده
       // فیلدهای وزن/قفسه فقط برای کاربرانی که دسترسی انبار دارند در فهرست آفلاین ذخیره شده‌اند
       if (state.warehouseAccess && found.shelfCode !== undefined) {
         minimal.unitWeight = found.unitWeight;
@@ -758,23 +739,7 @@ function showItemFromOfflineCache(code, area, fallbackMsg) {
         minimal.shelfDisplay = found.shelfCode || 'تعیین‌نشده';
         minimal.shelfLoad = null; // آفلاین: بار زنده‌ی قفسه قابل محاسبه نیست، فقط پس از اتصال به‌روز می‌شود
         minimal.activeShelves = [];
-        minimal.shelves = found.shelves || []; // >>> افزوده شد: چند قفسه‌ای هم آفلاین در دسترس باشد
       }
-      // >>> افزوده شد: پر کردن کشویی قفسه در حالت آفلاین از کش «فهرست قفسه‌های فعال»
-      if (state.warehouseAccess && found.shelfCode !== undefined) {
-        SyncDB.cacheGet('active_shelves_list').then(function (asRec) {
-          minimal.activeShelves = (asRec && asRec.value) ? asRec.value : [];
-          currentDetail = minimal;
-          showToast('نمایش نسخه‌ی خلاصه از داده‌ی محلی (آفلاین)', false);
-          renderItemDetail(minimal);
-        }).catch(function () {
-          currentDetail = minimal;
-          showToast('نمایش نسخه‌ی خلاصه از داده‌ی محلی (آفلاین)', false);
-          renderItemDetail(minimal);
-        });
-        return;
-      }
-      // <<< پایان بخش افزوده‌شده
       currentDetail = minimal;
       showToast('نمایش نسخه‌ی خلاصه از داده‌ی محلی (آفلاین)', false);
       renderItemDetail(minimal);
@@ -877,33 +842,6 @@ function renderItemDetail(item) {
       '</select>';
   }
 
-  // >>> افزوده شد: پشتیبانی از «چند قفسه برای یک کالا» — فهرست موجودی هر قفسه + انتخاب قفسه
-  // برای شمارش (دقیقاً همان UX انتخاب انبار در بالا، برای قفسه هم تکرار شده است)
-  var shelves = item.shelves || [];
-  var shelvesHtml = '';
-  if (shelves.length > 0) {
-    shelvesHtml = '<div class="section-title">موجودی به تفکیک قفسه</div><div class="shelves-list">' +
-      shelves.map(function (s) {
-        return '<div class="shelf-row-view">' +
-          '<div class="shelf-row-code">▾ قفسه ' + escapeHtml(s.shelfCode) + '</div>' +
-          '<div class="shelf-row-qty">موجودی: ' + escapeHtml(s.qty === '' || s.qty === null || s.qty === undefined ? '—' : String(s.qty)) + '</div>' +
-        '</div>';
-      }).join('') + '</div>';
-  }
-
-  var shelfSelectHtml = '';
-  if (shelves.length > 1) {
-    shelfSelectHtml =
-      '<label class="count-label">انتخاب قفسه (برای ثبت شمارش)</label>' +
-      '<select class="wh-select" id="countShelfSelect" onchange="updateDiffPreview()">' +
-        '<option value="">— انتخاب کنید —</option>' +
-        shelves.map(function (s) {
-          return '<option value="' + escapeHtml(s.shelfCode) + '">قفسه ' + escapeHtml(s.shelfCode) + ' (موجودی: ' + escapeHtml(s.qty === '' || s.qty === null || s.qty === undefined ? '—' : String(s.qty)) + ')</option>';
-        }).join('') +
-      '</select>';
-  }
-  // <<< پایان بخش افزوده‌شده
-
   // ===================== وزن و قفسه (فقط برای کاربران دارای دسترسی انبار) =====================
   // سرور فقط وقتی این فیلدها را برمی‌گرداند که کاربر دسترسی انبار داشته باشد؛ همان حضورِ
   // item.shelfDisplay اینجا به‌عنوان نشانه‌ی مجوز استفاده می‌شود (بدون تصمیم‌گیری سمت کلاینت).
@@ -953,43 +891,9 @@ function renderItemDetail(item) {
         '<input type="number" class="qty-input" id="unitWeightInput" step="0.001" min="0" inputmode="decimal" value="' + (item.unitWeight === '' ? '' : escapeHtml(String(item.unitWeight))) + '" placeholder="مثلاً 2.5">' +
         '<label class="count-label">قفسه</label>' +
         '<select class="wh-select" id="shelfSelect">' + shelfOptionsHtml + '</select>' +
+        '<button class="btn btn-primary" id="saveWeightShelfBtn" onclick="submitWeightShelf()">ذخیره تغییرات</button>' +
         '<div class="diff-preview" id="weightShelfMsg"></div>' +
       '</div>';
-
-    // >>> افزوده شد: مدیریت «چند قفسه برای یک کالا» — افزودن قفسه‌ی جدید بدون از بین بردن
-    // قفسه‌های قبلی، ویرایش موجودی هر قفسه، و حذف یک تخصیص قفسه. همه از طریق همان API/صف
-    // آفلاینِ موجود (apiUpdateItemShelfQty / op نوع updateShelfQty) انجام می‌شود.
-    var unassignedShelves = activeShelves.filter(function (s) {
-      return shelves.every(function (existing) { return existing.shelfCode !== s.code; });
-    });
-    var shelfRowsHtml = shelves.map(function (s) {
-      var safeId = 'sq_' + s.shelfCode.replace(/[^a-zA-Z0-9آ-ی]/g, '_');
-      return '<div class="shelf-edit-row" style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">' +
-        '<div style="flex:1;font-size:12.5px;font-weight:700;">قفسه ' + escapeHtml(s.shelfCode) + '</div>' +
-        '<input type="number" class="qty-input" id="' + safeId + '" min="0" inputmode="decimal" style="width:90px;" value="' + escapeHtml(s.qty === '' || s.qty === null || s.qty === undefined ? '' : String(s.qty)) + '" placeholder="موجودی">' +
-        '<button class="btn btn-secondary" style="padding:8px 10px;" onclick="updateShelfAssignment(' + escapeHtml(JSON.stringify(s.shelfCode)) + ')">به‌روزرسانی</button>' +
-        '<button class="btn btn-secondary" style="padding:8px 10px;color:#c53030;" onclick="removeShelfAssignment(' + escapeHtml(JSON.stringify(s.shelfCode)) + ')">حذف</button>' +
-      '</div>';
-    }).join('');
-    var addShelfHtml = unassignedShelves.length > 0
-      ? '<div class="shelf-add-row" style="display:flex;align-items:center;gap:6px;margin-top:6px;">' +
-          '<select class="wh-select" id="newShelfSelect" style="flex:1;">' +
-            unassignedShelves.map(function (s) {
-              var label = s.code + (s.location ? ' — ' + s.location : '');
-              return '<option value="' + escapeHtml(s.code) + '">' + escapeHtml(label) + '</option>';
-            }).join('') +
-          '</select>' +
-          '<input type="number" class="qty-input" id="newShelfQty" min="0" inputmode="decimal" style="width:90px;" placeholder="موجودی">' +
-          '<button class="btn btn-primary" style="padding:8px 10px;" onclick="addShelfAssignment()">افزودن قفسه</button>' +
-        '</div>'
-      : '';
-
-    weightShelfHtml +=
-      '<div class="section-title" style="margin-top:14px;">قفسه‌های این کالا (چند قفسه‌ای)</div>' +
-      '<div id="shelfAssignmentsBox">' + shelfRowsHtml + '</div>' +
-      addShelfHtml +
-      '<div class="diff-preview" id="shelfAssignMsg"></div>';
-    // <<< پایان بخش افزوده‌شده
   }
 
   var html =
@@ -1000,13 +904,11 @@ function renderItemDetail(item) {
       '<div class="item-code-pill">' + escapeHtml(item.code) + '</div>' +
       fieldsHtml +
       warehousesHtml +
-      shelvesHtml +
       lastCountHtml +
       weightShelfHtml +
       '<div class="sys-qty-row"><span class="k">موجودی سیستم' + (warehouses.length > 1 ? ' (مجموع کل انبارها)' : '') + '</span><span class="v">' + escapeHtml(item.systemQty !== '' && item.systemQty != null ? item.systemQty : '—') + '</span></div>' +
       '<div class="count-form-title">ثبت شمارش انبارگردانی</div>' +
       warehouseSelectHtml +
-      shelfSelectHtml +
       '<div class="qty-row">' +
         '<button class="qty-step" onclick="stepQty(-1)">−</button>' +
         '<input type="number" class="qty-input" id="qtyInput" inputmode="decimal" placeholder="0" oninput="updateDiffPreview()">' +
@@ -1014,9 +916,7 @@ function renderItemDetail(item) {
       '</div>' +
       '<div class="diff-preview" id="diffPreview"></div>' +
       '<textarea class="note-input" id="noteInput" placeholder="توضیحات (اختیاری)..."></textarea>' +
-      // >>> افزوده شد: دکمه‌ی یکپارچه — «ذخیره و تایید» به‌جای دو دکمه‌ی جدا (ثبت شمارش + ذخیره تغییرات وزن/قفسه)
-      '<button class="btn btn-primary" id="submitCountBtn" onclick="submitAll()">ذخیره و تایید</button>' +
-      // <<< پایان بخش افزوده‌شده
+      '<button class="btn btn-primary" id="submitCountBtn" onclick="submitCount()">ثبت شمارش</button>' +
     '</div>';
 
   area.innerHTML = html;
@@ -1039,22 +939,7 @@ function updateDiffPreview() {
   var qtyEl = document.getElementById('qtyInput');
   var qty = qtyEl ? qtyEl.value : '';
   if (qty === '') { el.textContent = ''; el.className = 'diff-preview'; return; }
-
-  // >>> افزوده شد: اگر کالا چند قفسه دارد، «موجودی سیستم» برای مقایسه از قفسه‌ی انتخاب‌شده
-  // خوانده می‌شود (نه موجودی کل کالا) — دقیقاً هم‌الگو با انتخاب انبار
-  var sys;
-  var shelves = currentDetail.shelves || [];
-  var shelfSelectEl = document.getElementById('countShelfSelect');
-  if (shelves.length > 1 && shelfSelectEl) {
-    var chosenCode = shelfSelectEl.value;
-    if (!chosenCode) { el.textContent = ''; el.className = 'diff-preview'; return; }
-    var chosenShelf = shelves.filter(function (s) { return s.shelfCode === chosenCode; })[0];
-    sys = chosenShelf ? Number(chosenShelf.qty) : NaN;
-  } else {
-    sys = Number(currentDetail.systemQty);
-  }
-  // <<< پایان بخش افزوده‌شده
-
+  var sys = Number(currentDetail.systemQty);
   var phys = Number(qty);
   if (isNaN(sys) || isNaN(phys)) { el.textContent = ''; return; }
   var diff = phys - sys;
@@ -1064,11 +949,11 @@ function updateDiffPreview() {
 }
 
 // >>> افزوده شد: صف‌کردن آفلاینِ یک شمارش (وقتی اینترنت قطع است یا ارسال آنلاین ناموفق بود)
-function queueRecordCount(itemForRecent, qty, note, warehouse, shelfCode) {
+function queueRecordCount(itemForRecent, qty, note, warehouse) {
   var clientOpId = genUuid();
   var op = {
     clientOpId: clientOpId, type: 'recordCount',
-    code: itemForRecent.code, qty: qty, note: note, warehouse: warehouse, shelfCode: shelfCode,
+    code: itemForRecent.code, qty: qty, note: note, warehouse: warehouse,
     ts: Date.now(), retryCount: 0
   };
   return SyncDB.enqueue(op).then(function () {
@@ -1089,35 +974,46 @@ function queueRecordCount(itemForRecent, qty, note, warehouse, shelfCode) {
 }
 // <<< پایان بخش افزوده‌شده
 
-// >>> افزوده شد: ثبت شمارش به‌صورت Promise (بخشی از دکمه‌ی یکپارچه‌ی «ذخیره و تایید»)؛
-// دقیقاً همان رفتار قبلیِ submitCount را دارد (آنلاین/آفلاین/بازگشت به صف در قطعی اتصال)،
-// فقط به‌شکل یک مرحله در زنجیره‌ی submitAll بازنویسی شده تا دکمه‌ی جدا و ارسال تکراری نداشته باشیم.
-function saveCountStep_(itemForRecent, qty, note, warehouse, shelfCode) {
-  if (!isOnline()) {
-    return queueRecordCount(itemForRecent, qty, note, warehouse, shelfCode);
-  }
-  var clientOpId = genUuid(); // شناسه‌ی یکتای عملیات، برای جلوگیری از ثبت تکراری سمت سرور
+function submitCount() {
+  if (!currentDetail) return;
+  var qtyEl = document.getElementById('qtyInput');
+  var qty = qtyEl ? qtyEl.value : '';
+  if (qty === '') { showToast('عدد شمارش را وارد کنید', true); if (qtyEl) qtyEl.focus(); return; }
+  var whSelect = document.getElementById('countWarehouseSelect');
+  var warehouse = whSelect ? whSelect.value : '';
+  if (whSelect && !warehouse) { showToast('لطفاً ابتدا انبار را انتخاب کنید', true); whSelect.focus(); return; }
+  var note = (document.getElementById('noteInput') || {}).value || '';
+  var btn = document.getElementById('submitCountBtn');
 
-  return apiCall('apiRecordCount', { token: state.token, code: itemForRecent.code, qty: qty, note: note, warehouse: warehouse, clientOpId: clientOpId, shelfCode: shelfCode }).then(function (res) {
-    if (handleIfSessionExpired(res)) { var e = new Error('نشست منقضی شده'); e.stopChain = true; throw e; }
-    if (!res.success) {
-      showToast(res.message || 'خطا در ثبت', true);
-      var e2 = new Error(res.message || 'خطا در ثبت'); e2.stopChain = true; throw e2;
-    }
-    if (res.serverTime) localStorage.setItem(LS_LAST_SYNC, res.serverTime);
-    addToRecent(itemForRecent, qty, res.diff);
-    showToast('✓ ذخیره و تایید شد');
+  // >>> افزوده شد: اگر اینترنت قطع است، مستقیم در صف آفلاین ذخیره کن
+  if (!isOnline()) {
+    queueRecordCount(currentDetail, qty, note, warehouse).catch(function () {});
+    return;
+  }
+  // <<< پایان بخش افزوده‌شده
+
+  btn.disabled = true; btn.textContent = 'در حال ثبت...';
+  var itemForRecent = currentDetail;
+  var clientOpId = genUuid(); // >>> افزوده شد: شناسه‌ی یکتای عملیات، برای جلوگیری از ثبت تکراری سمت سرور
+
+  apiCall('apiRecordCount', { token: state.token, code: currentDetail.code, qty: qty, note: note, warehouse: warehouse, clientOpId: clientOpId }).then(function (res) {
+    btn.disabled = false; btn.textContent = 'ثبت شمارش';
+    if (handleIfSessionExpired(res)) return;
+    if (!res.success) { showToast(res.message || 'خطا در ثبت', true); return; }
+    if (res.serverTime) localStorage.setItem(LS_LAST_SYNC, res.serverTime); // >>> افزوده شد
+    addToRecent(currentDetail, qty, res.diff);
+    showToast('✓ ثبت شد');
     document.getElementById('searchInput').value = '';
     lastSearchResults = null;
     currentDetail = null;
     renderScanNextScreen();
-  }).catch(function (err) {
-    if (err && err.stopChain) throw err; // رد صریح سرور — دیگر صف نشود، پیام خطا قبلاً نمایش داده شده
-    // اتصال ناپایدار/قطع وسط ارسال — به‌جای نمایش خطا، در صف آفلاین ذخیره کن
-    return queueRecordCount(itemForRecent, qty, note, warehouse, shelfCode);
+  }).catch(function () {
+    // >>> افزوده شد: اتصال ناپایدار/قطع وسط ارسال — به‌جای نمایش خطا، در صف آفلاین ذخیره کن
+    btn.disabled = false; btn.textContent = 'ثبت شمارش';
+    queueRecordCount(itemForRecent, qty, note, warehouse).catch(function () {});
+    // <<< پایان بخش افزوده‌شده
   });
 }
-// <<< پایان بخش افزوده‌شده
 
 // ===================== ویرایش وزن / قفسه (فقط کاربران دارای دسترسی انبار می‌بینند) =====================
 function toggleWeightShelfEdit() {
@@ -1150,190 +1046,65 @@ function queueUpdateWeightShelf(itemCode, unitWeight, shelfCode) {
 }
 // <<< پایان بخش افزوده‌شده
 
-// >>> افزوده شد: ذخیره‌ی وزن/قفسه به‌صورت Promise (بخشی از دکمه‌ی یکپارچه‌ی «ذخیره و تایید»)؛
-// دقیقاً همان رفتار قبلیِ submitWeightShelf را دارد، با این تفاوت که دیگر صفحه را دوباره رندر
-// نمی‌کند (چون بلافاصله شمارش هم در همین زنجیره ثبت و صفحه به لیست اخیر منتقل می‌شود) و روی
-// currentDetail فقط به‌صورت خاموش به‌روزرسانی انجام می‌دهد.
-function saveWeightShelfStep_(code, unitWeight, shelfCode) {
-  var msgEl = document.getElementById('weightShelfMsg');
-  if (!isOnline()) {
-    return queueUpdateWeightShelf(code, unitWeight, shelfCode).then(function () {
-      if (msgEl) { msgEl.textContent = 'وزن/قفسه ذخیره شد؛ پس از اتصال اینترنت اعمال می‌شود.'; msgEl.className = 'diff-preview ok'; }
-    });
-  }
-  var clientOpId = genUuid(); // شناسه‌ی یکتای عملیات، برای جلوگیری از اعمال تکراری سمت سرور
-
-  // توجه: محاسبه‌ی وزن کل و اعتبارسنجی قفسه فقط سمت سرور انجام می‌شود؛
-  // اینجا فقط مقادیر خام کاربر ارسال و نتیجه‌ی آماده‌ی سرور روی currentDetail اعمال می‌شود.
-  return apiCall('apiUpdateItemWeightShelf', { token: state.token, code: code, unitWeight: unitWeight, shelfCode: shelfCode, clientOpId: clientOpId }).then(function (res) {
-    if (handleIfSessionExpired(res)) { var e = new Error('نشست منقضی شده'); e.stopChain = true; throw e; }
-    if (!res.success) {
-      if (msgEl) { msgEl.textContent = res.message || 'خطا در ذخیره‌ی وزن/قفسه.'; msgEl.className = 'diff-preview bad'; }
-      showToast(res.message || 'خطا در ذخیره‌ی وزن/قفسه', true);
-      var e2 = new Error(res.message || 'خطا در ذخیره‌ی وزن/قفسه'); e2.stopChain = true; throw e2;
-    }
-    if (res.serverTime) localStorage.setItem(LS_LAST_SYNC, res.serverTime);
-    if (currentDetail && currentDetail.code === code) {
-      currentDetail.unitWeight = res.unitWeight;
-      currentDetail.shelfCode = res.shelfCode;
-      currentDetail.shelf = res.shelf;
-      currentDetail.totalWeight = res.totalWeight;
-      currentDetail.unitWeightDisplay = res.unitWeightDisplay;
-      currentDetail.totalWeightDisplay = res.totalWeightDisplay;
-      currentDetail.shelfDisplay = res.shelfDisplay;
-      currentDetail.shelfLoad = res.shelfLoad;
-    }
-  }).catch(function (err) {
-    if (err && err.stopChain) throw err; // رد صریح سرور یا نشست منقضی — ادامه نده، شمارش هم ثبت نشود
-    // اتصال ناپایدار/قطع وسط ارسال — به‌جای نمایش خطا، در صف آفلاین ذخیره کن و اجازه بده شمارش هم ثبت شود
-    return queueUpdateWeightShelf(code, unitWeight, shelfCode).then(function () {
-      if (msgEl) { msgEl.textContent = 'اتصال ناپایدار بود؛ وزن/قفسه در صف ارسال قرار گرفت.'; msgEl.className = 'diff-preview ok'; }
-    });
-  });
-}
-// <<< پایان بخش افزوده‌شده
-
-// >>> افزوده شد: پشتیبانی از «چند قفسه برای یک کالا» — افزودن/ویرایش/حذفِ یک تخصیص قفسه.
-// این سه تابع مستقل از دکمه‌ی «ذخیره و تایید» عمل می‌کنند (دقیقاً مثل «ذخیره تغییرات» قدیمیِ
-// وزن/قفسه)، چون افزودن/حذف قفسه یک اقدام مدیریتی جداست، نه بخشی از ثبت شمارش.
-
-// صف‌کردن آفلاینِ افزودن/ویرایش/حذفِ یک تخصیص قفسه (وقتی اینترنت قطع است یا ارسال ناموفق بود)
-function queueUpdateShelfQty(itemCode, shelfCode, qty) {
-  var clientOpId = genUuid();
-  var op = {
-    clientOpId: clientOpId, type: 'updateShelfQty',
-    code: itemCode, shelfCode: shelfCode, qty: qty,
-    ts: Date.now(), retryCount: 0
-  };
-  return SyncDB.enqueue(op).then(function () {
-    refreshPendingCount();
-  }).catch(function (err) {
-    showToast('ذخیره‌ی محلی ناموفق بود: ' + err.message, true);
-    throw err;
-  });
-}
-
-// منطق مشترک افزودن/ویرایش/حذف — qty === '' یعنی حذفِ آن تخصیص قفسه
-function submitShelfAssignment_(shelfCode, qty) {
+function submitWeightShelf() {
   if (!currentDetail) return;
-  var msg = document.getElementById('shelfAssignMsg');
-  var code = currentDetail.code;
-
-  if (qty !== '' && (isNaN(Number(qty)) || Number(qty) < 0)) {
-    if (msg) { msg.textContent = 'موجودی قفسه باید عددی نامنفی باشد.'; msg.className = 'diff-preview bad'; }
-    showToast('موجودی قفسه نامعتبر است', true);
-    return;
-  }
-
-  if (!isOnline()) {
-    queueUpdateShelfQty(code, shelfCode, qty).then(function () {
-      showToast('در صف ارسال قرار گرفت؛ پس از اتصال اینترنت اعمال می‌شود.');
-    }).catch(function () {});
-    return;
-  }
-
-  var clientOpId = genUuid();
-  apiCall('apiUpdateItemShelfQty', { token: state.token, code: code, shelfCode: shelfCode, qty: qty, clientOpId: clientOpId }).then(function (res) {
-    if (handleIfSessionExpired(res)) return;
-    if (!res.success) {
-      if (msg) { msg.textContent = res.message || 'خطا در ذخیره‌ی قفسه.'; msg.className = 'diff-preview bad'; }
-      showToast(res.message || 'خطا در ذخیره‌ی قفسه', true);
-      return;
-    }
-    if (res.serverTime) localStorage.setItem(LS_LAST_SYNC, res.serverTime);
-    currentDetail.shelves = res.shelves || [];
-    showToast('قفسه‌های کالا به‌روزرسانی شد.');
-    renderItemDetail(currentDetail); // بازسازی کامل صفحه تا فهرست قفسه‌ها/ظرفیت هم تازه شود
-  }).catch(function () {
-    queueUpdateShelfQty(code, shelfCode, qty).then(function () {
-      if (msg) { msg.textContent = 'اتصال ناپایدار بود؛ در صف ارسال قرار گرفت.'; msg.className = 'diff-preview ok'; }
-    });
-  });
-}
-
-function updateShelfAssignment(shelfCode) {
-  var safeId = 'sq_' + shelfCode.replace(/[^a-zA-Z0-9آ-ی]/g, '_');
-  var el = document.getElementById(safeId);
-  var qty = el ? el.value : '';
-  if (qty === '') { showToast('موجودی جدید را وارد کنید', true); if (el) el.focus(); return; }
-  submitShelfAssignment_(shelfCode, qty);
-}
-
-function removeShelfAssignment(shelfCode) {
-  submitShelfAssignment_(shelfCode, '');
-}
-
-function addShelfAssignment() {
-  var selectEl = document.getElementById('newShelfSelect');
-  var qtyEl = document.getElementById('newShelfQty');
-  var shelfCode = selectEl ? selectEl.value : '';
-  var qty = qtyEl ? qtyEl.value : '';
-  if (!shelfCode) { showToast('قفسه را انتخاب کنید', true); return; }
-  if (qty === '') { showToast('موجودی قفسه‌ی جدید را وارد کنید', true); if (qtyEl) qtyEl.focus(); return; }
-  submitShelfAssignment_(shelfCode, qty);
-}
-// <<< پایان بخش افزوده‌شده
-
-// >>> افزوده شد: دکمه‌ی یکپارچه‌ی «ذخیره و تایید» — به‌جای دو دکمه‌ی جدا («ذخیره تغییرات» برای
-// وزن/قفسه و «ثبت شمارش»)، این تابع در صورت باز بودن پنل ویرایش وزن/قفسه، ابتدا آن را ذخیره
-// می‌کند و سپس شمارش را ثبت می‌کند — هر دو با یک کلیک، بدون ایجاد عملیات یا ارسال تکراری
-// (هر بخش دقیقاً همان یک عملیات/صف قبلی خودش را دارد، فقط پشت یک دکمه قرار گرفته‌اند).
-function submitAll() {
-  if (!currentDetail) return;
-
   var weightEl = document.getElementById('unitWeightInput');
   var shelfEl = document.getElementById('shelfSelect');
-  var weightShelfBox = document.getElementById('weightShelfEditBox');
-  var wsMsg = document.getElementById('weightShelfMsg');
-  var hasWeightShelfEdit = !!(weightShelfBox && weightShelfBox.style.display !== 'none' && weightEl && shelfEl);
+  var msg = document.getElementById('weightShelfMsg');
+  var btn = document.getElementById('saveWeightShelfBtn');
   var unitWeight = weightEl ? weightEl.value : '';
   var shelfCode = shelfEl ? shelfEl.value : '';
 
-  if (hasWeightShelfEdit && unitWeight !== '' && (isNaN(Number(unitWeight)) || Number(unitWeight) < 0)) {
-    if (wsMsg) { wsMsg.textContent = 'وزن واحد باید عددی نامنفی باشد.'; wsMsg.className = 'diff-preview bad'; }
-    showToast('وزن واحد نامعتبر است', true);
-    return;
+  if (unitWeight !== '' && (isNaN(Number(unitWeight)) || Number(unitWeight) < 0)) {
+    msg.textContent = 'وزن واحد باید عددی نامنفی باشد.'; msg.className = 'diff-preview bad'; return;
   }
 
-  var qtyEl = document.getElementById('qtyInput');
-  var qty = qtyEl ? qtyEl.value : '';
-  if (qty === '') { showToast('عدد شمارش را وارد کنید', true); if (qtyEl) qtyEl.focus(); return; }
-  var whSelect = document.getElementById('countWarehouseSelect');
-  var warehouse = whSelect ? whSelect.value : '';
-  if (whSelect && !warehouse) { showToast('لطفاً ابتدا انبار را انتخاب کنید', true); whSelect.focus(); return; }
-
-  // >>> افزوده شد: اگر کالا چند قفسه دارد، قبل از ثبت شمارش باید مشخص شود کدام قفسه شمارش می‌شود
-  var countShelves = currentDetail.shelves || [];
-  var countShelfSelect = document.getElementById('countShelfSelect');
-  var countShelfCode = countShelfSelect ? countShelfSelect.value : (countShelves.length === 1 ? countShelves[0].shelfCode : '');
-  if (countShelves.length > 1 && !countShelfCode) {
-    showToast('لطفاً ابتدا قفسه مورد نظر برای شمارش را انتخاب کنید', true);
-    if (countShelfSelect) countShelfSelect.focus();
+  // >>> افزوده شد: اگر اینترنت قطع است، مستقیم در صف آفلاین ذخیره کن
+  if (!isOnline()) {
+    var codeOffline = currentDetail.code;
+    queueUpdateWeightShelf(codeOffline, unitWeight, shelfCode).then(function () {
+      msg.textContent = 'ذخیره شد؛ پس از اتصال اینترنت اعمال می‌شود.';
+      msg.className = 'diff-preview ok';
+      showToast('در صف ارسال قرار گرفت');
+    }).catch(function () { /* پیام خطا قبلاً در queueUpdateWeightShelf نمایش داده شد */ });
     return;
   }
   // <<< پایان بخش افزوده‌شده
 
-  var note = (document.getElementById('noteInput') || {}).value || '';
+  btn.disabled = true; btn.textContent = 'در حال ذخیره...';
+  msg.textContent = ''; msg.className = 'diff-preview';
+  var codeForQueue = currentDetail.code;
+  var clientOpId = genUuid(); // >>> افزوده شد: شناسه‌ی یکتای عملیات، برای جلوگیری از اعمال تکراری سمت سرور
 
-  var btn = document.getElementById('submitCountBtn');
-  var itemForRecent = currentDetail;
-  var itemCode = currentDetail.code;
+  // توجه: محاسبه‌ی وزن کل و اعتبارسنجی قفسه فقط سمت سرور انجام می‌شود؛
+  // اینجا فقط مقادیر خام کاربر ارسال و نتیجه‌ی آماده‌ی سرور نمایش داده می‌شود.
+  apiCall('apiUpdateItemWeightShelf', { token: state.token, code: currentDetail.code, unitWeight: unitWeight, shelfCode: shelfCode, clientOpId: clientOpId }).then(function (res) {
+    btn.disabled = false; btn.textContent = 'ذخیره تغییرات';
+    if (handleIfSessionExpired(res)) return;
+    if (!res.success) { msg.textContent = res.message || 'خطا در ذخیره.'; msg.className = 'diff-preview bad'; return; }
+    if (res.serverTime) localStorage.setItem(LS_LAST_SYNC, res.serverTime); // >>> افزوده شد
 
-  if (btn) { btn.disabled = true; btn.textContent = 'در حال ذخیره...'; }
-  if (wsMsg) { wsMsg.textContent = ''; wsMsg.className = 'diff-preview'; }
+    currentDetail.unitWeight = res.unitWeight;
+    currentDetail.shelfCode = res.shelfCode;
+    currentDetail.shelf = res.shelf;
+    currentDetail.totalWeight = res.totalWeight;
+    currentDetail.unitWeightDisplay = res.unitWeightDisplay;
+    currentDetail.totalWeightDisplay = res.totalWeightDisplay;
+    currentDetail.shelfDisplay = res.shelfDisplay;
+    currentDetail.shelfLoad = res.shelfLoad; // پنل ظرفیت قفسه هم باید با بار تازه‌محاسبه‌شده به‌روز شود
 
-  var chain = Promise.resolve();
-  if (hasWeightShelfEdit) {
-    chain = chain.then(function () { return saveWeightShelfStep_(itemCode, unitWeight, shelfCode); });
-  }
-  chain.then(function () {
-    return saveCountStep_(itemForRecent, qty, note, warehouse, countShelfCode);
+    showToast('تغییرات ذخیره شد.', false);
+    renderItemDetail(currentDetail); // بازسازی کامل صفحه‌ی جزئیات تا پنل ظرفیت قفسه هم تازه شود
   }).catch(function () {
-    // خطا قبلاً به‌صورت پیام/toast مناسب نمایش داده شده؛ فقط دکمه را برای تلاش دوباره فعال کن
-    if (btn) { btn.disabled = false; btn.textContent = 'ذخیره و تایید'; }
+    // >>> افزوده شد: اتصال ناپایدار/قطع وسط ارسال — به‌جای نمایش خطا، در صف آفلاین ذخیره کن
+    btn.disabled = false; btn.textContent = 'ذخیره تغییرات';
+    queueUpdateWeightShelf(codeForQueue, unitWeight, shelfCode).then(function () {
+      msg.textContent = 'اتصال ناپایدار بود؛ در صف ارسال قرار گرفت.';
+      msg.className = 'diff-preview ok';
+    });
+    // <<< پایان بخش افزوده‌شده
   });
 }
-// <<< پایان بخش افزوده‌شده
 
 // ===================== قفسه‌ها — نظارت خودکار بار قفسه (فقط دسترسی انبار) =====================
 // توجه معماری: تمام محاسبات (بار فعلی، باقیمانده، درصد استفاده، وضعیت) روی سرور
