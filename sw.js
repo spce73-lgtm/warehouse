@@ -9,7 +9,7 @@
 // دوباره از شبکه دریافت شوند به‌جای نسخه‌ی قدیمیِ گیرافتاده در کش مرورگر (Stale Cache)؛ این
 // شایع‌ترین علتِ واقعیِ «کار نکردن دکمه‌ی ورود بعد از آپدیت فایل‌ها» در اپ‌های PWA است. تغییر
 // نام کش باعث می‌شود activate handler زیر (که کش‌های قدیمی را پاک می‌کند) خودش کش v1 را حذف کند.
-var CACHE_NAME = 'wh-scanner-shell-v3';
+var CACHE_NAME = 'wh-scanner-shell-v4';
 // <<< پایان بخش افزوده‌شده
 var APP_SHELL = [
   './',
@@ -24,10 +24,19 @@ self.addEventListener('install', function (event) {
   self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then(function (cache) {
-      // هر فایل جدا کش می‌شود؛ نبودِ یک فایل اختیاری (مثلاً آیکون) نباید کل نصب را خراب کند
+      // >>> اصلاح شد: قبلاً cache.add(url) با یک رشته‌ی ساده صدا زده می‌شد که یعنی fetch با
+      // حالت پیش‌فرض ('default') انجام می‌شود — یعنی اگر کش HTTP خودِ مرورگر (نه CacheStorage
+      // سرویس‌ورکر؛ این یک لایه‌ی کاملاً جداست) هنوز یک نسخه‌ی «تازه» (در بازه‌ی max-age) از
+      // app.js/index.html داشته باشد، حتی نصب کاملاً جدیدِ سرویس‌ورکر هم می‌توانست همان نسخه‌ی
+      // قدیمیِ کش‌شده در مرورگر را بگیرد — بدون هیچ تماسی با شبکه — و همین باعث می‌شد بلافاصله
+      // بعد از هر دیپلوی جدید (در بازه‌ی کش HTTP گیت‌هاب‌پیجز)، ورود دوباره «بی‌واکنش» شود، چون
+      // Cache Storage همیشه از یک نسخه‌ی قدیمی (که از کش HTTP آمده) پر می‌شد، صرف‌نظر از تغییر
+      // CACHE_NAME یا منطق fetch handler. اصلاح: با {cache:'reload'} کش HTTP مرورگر را دور می‌زنیم
+      // تا نصبِ سرویس‌ورکر همیشه واقعاً از شبکه (نسخه‌ی واقعاً جدید) بگیرد.
       return Promise.all(APP_SHELL.map(function (url) {
-        return cache.add(url).catch(function () {});
+        return cache.add(new Request(url, { cache: 'reload' })).catch(function () {});
       }));
+      // <<< پایان بخش اصلاح‌شده
     })
   );
 });
