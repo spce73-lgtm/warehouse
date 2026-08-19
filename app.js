@@ -5,13 +5,7 @@
 // =====================================================================
 
 // ===================== حافظه‌ی محلی =====================
-// >>> افزوده شد: آدرس Apps Script ثابت و داخلیِ برنامه — دیگر از کاربر گرفته نمی‌شود.
-// علت واقعیِ خرابیِ دکمه‌ی «ورود»: doLogin() به عنصر #serverUrlInput وابسته بود، اما آن فیلد
-// از index.html حذف شده بود؛ getElementById('serverUrlInput') مقدار null برمی‌گرداند و فراخوانی
-// .value روی آن بی‌صدا Exception می‌داد — یعنی کلیک روی «ورود» قبل از رسیدن به apiLogin متوقف
-// می‌شد. اکنون آدرس ثابت از همینجا خوانده می‌شود و هیچ فیلدی در فرم لازم نیست.
-var APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbypZ_VKrsHl2facqbeY263LQeE812J-J2kcmjtooiFfCQZJQQp00JLlc0EoCWwG4IXm/exec';
-// <<< پایان بخش افزوده‌شده
+var LS_SERVER = 'wh_scanner_server_url';
 var LS_TOKEN = 'wh_scanner_token';
 var LS_USER = 'wh_scanner_username';
 var LS_ROLE = 'wh_scanner_role';
@@ -19,10 +13,12 @@ var LS_FULLNAME = 'wh_scanner_fullname';
 var LS_WAREHOUSE = 'wh_scanner_warehouse_access';
 // >>> افزوده شد: همگام‌سازی آفلاین — آخرین زمان همگام‌سازی موفق (رشته‌ی شمسی آماده از سرور)
 var LS_LAST_SYNC = 'wh_scanner_last_sync';
+// >>> افزوده شد: آیا آخرین تلاش برای دانلود کامل داده‌ی آفلاین موفق بود؟ (برای نمایش وضعیت واقعی در نوار همگام‌سازی)
+var LS_LAST_SYNC_OK = 'wh_scanner_last_sync_ok';
 // <<< پایان بخش افزوده‌شده
 
 var state = {
-  serverUrl: APPS_SCRIPT_URL, // >>> تغییر یافت: دیگر از localStorage/ورودی کاربر خوانده نمی‌شود
+  serverUrl: localStorage.getItem(LS_SERVER) || '',
   token: localStorage.getItem(LS_TOKEN) || '',
   username: localStorage.getItem(LS_USER) || '',
   role: localStorage.getItem(LS_ROLE) || '',
@@ -219,14 +215,20 @@ function renderSyncBar() {
   var online = isOnline();
   var dotColor = online ? '#1a7f37' : '#c53030';
   var lastSync = localStorage.getItem(LS_LAST_SYNC) || '—';
+  // >>> افزوده شد: اگر آخرین تلاش برای دانلود کامل داده ناموفق بود، وضعیت واقعی نمایش داده شود
+  // (قبلاً این خطا کاملاً بی‌صدا بود و نوار همگام‌سازی همیشه طوری نشان می‌داد که انگار همه‌چیز خوب است)
+  var lastSyncOk = localStorage.getItem(LS_LAST_SYNC_OK);
+  var syncWarning = (lastSyncOk === '0' && online) ? '<span style="color:#c53030;font-weight:700;">⚠ دریافت آخرین داده ناموفق بود</span>' : '';
+  // <<< پایان بخش افزوده‌شده
   bar.innerHTML =
     '<div style="display:flex;align-items:center;gap:8px;padding:7px 12px;background:#f4f6f8;border-bottom:1px solid #e4e7ea;font-size:11.5px;flex-wrap:wrap;">' +
       '<span style="width:9px;height:9px;border-radius:50%;background:' + dotColor + ';display:inline-block;flex:none;"></span>' +
       '<span style="font-weight:700;color:' + dotColor + ';">' + (online ? 'آنلاین' : 'آفلاین') + '</span>' +
       (syncState.pendingCount ? '<span style="color:#a15c00;font-weight:700;">' + syncState.pendingCount + ' در صف ارسال</span>' : '') +
       '<span style="color:#5a6472;">آخرین همگام‌سازی: ' + escapeHtml(lastSync) + '</span>' +
-      '<button type="button" id="syncNowBtn" onclick="syncNow()" style="margin-inline-start:auto;border:1px solid #0f4c81;color:#0f4c81;background:#fff;border-radius:8px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;"' + (syncState.syncing ? ' disabled' : '') + '>' +
-        (syncState.syncing ? 'در حال ارسال...' : 'همگام‌سازی اکنون') +
+      syncWarning +
+      '<button type="button" id="syncNowBtn" onclick="syncNow(true)" style="margin-inline-start:auto;border:1px solid #0f4c81;color:#0f4c81;background:#fff;border-radius:8px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;"' + (syncState.syncing ? ' disabled' : '') + '>' +
+        (syncState.syncing ? 'در حال همگام‌سازی...' : 'همگام‌سازی اکنون') +
       '</button>' +
     '</div>';
 }
@@ -241,10 +243,14 @@ function refreshPendingCount() {
 // >>> افزوده شد: کش کامل داده‌ی آفلاین (کالاها + قفسه‌ها) — یک درخواست دسته‌ای، بدون تصویر
 // این تابع فقط وقتی آنلاین هستیم و کاربر وارد شده اجرا می‌شود؛ در غیر این صورت بی‌اثر است
 // و هیچ درخواست غیرضروری به سرور ارسال نمی‌کند.
+// >>> اصلاح شد: قبلاً خطای این تابع کاملاً بی‌صدا بلعیده می‌شد (فقط .catch(function(){}))، یعنی
+// اگر دانلود کامل داده به هر دلیلی (قطعی موقت، تایم‌اوت و...) شکست می‌خورد، کاربر هیچ نشانه‌ای
+// نمی‌دید و تصور می‌کرد «داده‌ی آفلاین اصلاً ذخیره نمی‌شود» — این تابع حالا با موفقیت/شکست و
+// تعداد آیتم‌های واقعاً ذخیره‌شده resolve/reject می‌شود تا syncNow() بتواند وضعیت واقعی را نشان دهد.
 function refreshOfflineCache() {
-  if (!state.token || !isOnline()) return Promise.resolve();
+  if (!state.token || !isOnline()) return Promise.resolve({ skipped: true });
   return apiCall('apiOfflineIndex', { token: state.token }).then(function (res) {
-    if (!res || !res.success) return;
+    if (!res || !res.success) throw new Error((res && res.message) || 'دریافت داده‌ی آفلاین ناموفق بود.');
     var tasks = [SyncDB.cacheSet('offline_items_index', res.items || [], 24 * 60 * 60 * 1000)];
     if (res.shelves) {
       tasks.push(SyncDB.cacheSet('shelves_list', res.shelves, 24 * 60 * 60 * 1000));
@@ -265,9 +271,20 @@ function refreshOfflineCache() {
     // <<< پایان بخش افزوده‌شده
     return Promise.all(tasks).then(function () {
       if (res.serverTime) localStorage.setItem(LS_LAST_SYNC, res.serverTime);
+      localStorage.setItem(LS_LAST_SYNC_OK, '1'); // >>> افزوده شد: آخرین تلاش موفق بود
       renderSyncBar();
+      return { skipped: false, itemCount: (res.items || []).length, shelfCount: (res.shelves || []).length };
     });
-  }).catch(function () { /* به‌روزرسانی کش آفلاین، best-effort است؛ نبود آن نباید کاربر را متوقف کند */ });
+  }).catch(function (err) {
+    // >>> افزوده شد: برخلاف قبل، خطا اینجا بلعیده نمی‌شود — به بالا پاس داده می‌شود تا syncNow()
+    // (وقتی کاربر خودش دکمه‌ی «همگام‌سازی» را زده) بتواند آن را واضح نشان دهد. برای فراخوانی‌های
+    // خودکار (ورود به اپ، رویداد online، بازگشت از پس‌زمینه) که این خطا را نادیده می‌گیرند
+    // (catch(function(){}) در همان محل فراخوانی)، رفتار قبلی (بی‌صدا) دقیقاً حفظ می‌شود.
+    localStorage.setItem(LS_LAST_SYNC_OK, '0');
+    renderSyncBar();
+    throw err;
+    // <<< پایان بخش افزوده‌شده
+  });
 }
 // <<< پایان بخش افزوده‌شده
 
@@ -285,23 +302,45 @@ var MAX_SYNC_BATCH_SIZE = 20;
 var MAX_SYNC_RETRY = 8;
 
 // ارسال دسته‌ای صفِ عملیات‌های ذخیره‌شده‌ی محلی به سرور — یک درخواست به‌جای چند درخواست
-function syncNow() {
+// >>> اصلاح شد: پارامتر «manual» — وقتی کاربر خودش دکمه‌ی «همگام‌سازی» را می‌زند (manual=true)،
+// نتیجه‌ی واقعیِ دانلودِ کامل داده (نه فقط ارسال صف) هم به‌وضوح نمایش داده می‌شود — طبق نیاز
+// «نمایش پیشرفت/نتیجه‌ی همگام‌سازی». برای فراخوانی‌های خودکار (ورود به اپ، رویداد online،
+// بازگشت از پس‌زمینه) رفتار قبلاً موجود (ساکت، بدون مزاحمت برای کاربر) دقیقاً حفظ می‌شود.
+function syncNow(manual) {
   if (syncState.syncing) return;
   if (!state.token) return; // هنوز وارد نشده
-  if (!isOnline()) { showToast('اتصال اینترنت برقرار نیست', true); return; }
+  if (!isOnline()) { if (manual) showToast('اتصال اینترنت برقرار نیست', true); return; }
 
-  // >>> افزوده شد: همراه با هر Sync (خودکار یا دستی)، کش داده‌ی آفلاین هم به‌روزرسانی می‌شود
-  refreshOfflineCache();
-  // <<< پایان بخش افزوده‌شده
+  syncState.syncing = true;
+  renderSyncBar();
 
-  SyncDB.listQueue().then(function (items) {
+  // >>> افزوده شد: همراه با هر Sync (خودکار یا دستی)، ابتدا کش کامل داده‌ی آفلاین به‌روزرسانی
+  // می‌شود (دانلود کامل کالاها/قفسه‌ها)، سپس صفِ عملیات‌های آفلاین ارسال می‌شود؛ نتیجه‌ی هر دو
+  // بخش در پیام نهایی (برای sync دستی) لحاظ می‌شود.
+  var downloadOk = null, downloadCount = 0, downloadErr = null;
+  refreshOfflineCache().then(function (r) {
+    downloadOk = !r || r.skipped ? null : true;
+    downloadCount = (r && r.itemCount) || 0;
+  }).catch(function (err) {
+    downloadOk = false;
+    downloadErr = err;
+  }).then(function () {
+    return SyncDB.listQueue();
+  }).then(function (items) {
+    // <<< پایان بخش افزوده‌شده
     if (!items.length) {
-      showToast('چیزی برای همگام‌سازی نیست');
+      syncState.syncing = false;
       refreshPendingCount();
+      // >>> افزوده شد: پیام نهایی برای sync دستی، شامل نتیجه‌ی واقعیِ دانلود هم می‌شود
+      if (manual) {
+        if (downloadOk) showToast('✓ داده‌ی محلی به‌روز شد (' + downloadCount + ' کالا) — چیزی برای ارسال نبود');
+        else if (downloadOk === false) showToast('خطا در دریافت داده‌ی کامل: ' + (downloadErr ? downloadErr.message : ''), true);
+        else showToast('چیزی برای همگام‌سازی نیست');
+      }
+      // <<< پایان بخش افزوده‌شده
+      renderSyncBar();
       return;
     }
-    syncState.syncing = true;
-    renderSyncBar();
 
     var batch = items.slice(0, MAX_SYNC_BATCH_SIZE);
     var ops = batch.map(function (op) {
@@ -348,24 +387,29 @@ function syncNow() {
       chain.then(function () {
         if (res.serverTime) localStorage.setItem(LS_LAST_SYNC, res.serverTime);
         refreshPendingCount();
-        if (okCount) showToast('✓ ' + okCount + ' مورد همگام‌سازی شد' + (failCount ? (' — ' + failCount + ' ناموفق') : ''));
-        else if (failCount) showToast('همگام‌سازی ناموفق بود؛ دوباره تلاش می‌شود', true);
-        // >>> افزوده شد: اگر همین لحظه صفحه‌ی «اخیر» باز است، نشان‌های «در انتظار» را بلافاصله به‌روز کن
-        maybeRefreshRecentView();
+        // >>> افزوده شد: پیام نهایی حالا هم نتیجه‌ی دانلود و هم نتیجه‌ی ارسال صف را نشان می‌دهد
+        var uploadMsg = okCount ? (okCount + ' مورد ارسال شد' + (failCount ? (' — ' + failCount + ' ناموفق') : '')) : (failCount ? 'ارسال ناموفق بود؛ دوباره تلاش می‌شود' : '');
+        if (manual) {
+          var dlMsg = downloadOk ? ('داده‌ی محلی به‌روز شد (' + downloadCount + ' کالا)') : (downloadOk === false ? 'دریافت داده‌ی کامل ناموفق بود' : '');
+          var full = [dlMsg, uploadMsg].filter(Boolean).join(' — ');
+          showToast((failCount || downloadOk === false ? '' : '✓ ') + (full || 'همگام‌سازی انجام شد'), !!(failCount || downloadOk === false));
+        } else if (okCount || failCount) {
+          showToast((okCount ? '✓ ' : '') + uploadMsg, !!failCount && !okCount);
+        }
         // <<< پایان بخش افزوده‌شده
-        if (items.length > batch.length && isOnline()) setTimeout(syncNow, 400);
+        maybeRefreshRecentView();
+        if (items.length > batch.length && isOnline()) setTimeout(function () { syncNow(false); }, 400);
       });
     }).catch(function (err) {
       syncState.syncing = false;
       renderSyncBar();
-      // >>> افزوده شد: اگر واقعاً اتصال قطع است، این یک خطای واقعی نیست — فقط باید صبر کرد تا اینترنت برگردد؛
+      // اگر واقعاً اتصال قطع است، این یک خطای واقعی نیست — فقط باید صبر کرد تا اینترنت برگردد؛
       // پیام «تایم‌اوت سرور»/«پاسخ نداد» را در این حالت به کاربر نشان نمی‌دهیم. آیتم‌های صف همچنان دست‌نخورده باقی می‌مانند.
       if (isOnline()) {
         showToast('خطا در همگام‌سازی: ' + err.message, true);
       }
-      // <<< پایان بخش افزوده‌شده
     });
-  }).catch(function () {});
+  }).catch(function () { syncState.syncing = false; renderSyncBar(); });
 }
 // ===================== پایان بخش همگام‌سازی آفلاین =====================
 
@@ -426,16 +470,36 @@ function handleIfSessionExpired(res) {
 
 // ===================== ورود =====================
 function doLogin() {
+  var serverUrl = document.getElementById('serverUrlInput').value.trim();
   var username = document.getElementById('loginUsername').value.trim();
   var password = document.getElementById('loginPassword').value;
   var msgBox = document.getElementById('loginMsg');
   var btn = document.getElementById('loginBtn');
   msgBox.innerHTML = '';
 
+  if (!serverUrl) {
+    msgBox.innerHTML = '<div class="msg err">کادر «آدرس سامانه» خالی است. آدرس Apps Script (.../exec) را پیست کنید.</div>';
+    return;
+  }
+  if (serverUrl.indexOf('http') !== 0) {
+    msgBox.innerHTML = '<div class="msg err">آدرس سامانه باید با https:// شروع شود.</div>';
+    return;
+  }
+  if (serverUrl.indexOf('github.io') !== -1) {
+    msgBox.innerHTML = '<div class="msg err">این آدرس گیت‌هاب‌پیجز است (همین اپ)، نه آدرس Apps Script.</div>';
+    return;
+  }
+  if (serverUrl.indexOf('/exec') === -1) {
+    msgBox.innerHTML = '<div class="msg err">آدرس واردشده باید به exec ختم شود.</div>';
+    return;
+  }
   if (!username || !password) {
     msgBox.innerHTML = '<div class="msg err">نام کاربری و رمز عبور را وارد کنید.</div>';
     return;
   }
+
+  state.serverUrl = serverUrl.replace(/\/$/, '');
+  localStorage.setItem(LS_SERVER, state.serverUrl);
 
   btn.disabled = true; btn.textContent = 'در حال ورود...';
   apiCall('apiLogin', { username: username, password: password }).then(function (res) {
@@ -1340,6 +1404,27 @@ function openShelvesList() {
   currentShelfCode = null;
   showScreen('shelvesScreen');
   var area = document.getElementById('shelvesArea');
+
+  // >>> افزوده شد: اگر اینترنت قطع است، مستقیم از کش آفلاین بخوان (بدون تلاش برای apiCall).
+  // قبلاً این تابع بر خلاف جست‌وجو/جزئیات کالا، این بررسی را نداشت و همیشه اول تلاش برای
+  // درخواست شبکه می‌کرد — که وقتی واقعاً آفلاین بود، تا timeout (۱۵ ثانیه) طول می‌کشید و پیام
+  // خطای «اتصال اینترنت را بررسی کنید» به‌جای داده‌ی محلیِ موجود نمایش داده می‌شد.
+  if (!isOnline()) {
+    area.innerHTML = '<div class="empty-hint">در حال بارگذاری از داده‌ی محلی...</div>';
+    SyncDB.cacheGet('shelves_list').then(function (rec) {
+      if (rec && rec.value && rec.value.length) {
+        showToast('نمایش داده‌ی محلی (آفلاین)', false);
+        renderShelvesList(rec.value);
+      } else {
+        area.innerHTML = '<div class="empty-hint">اتصال اینترنت برقرار نیست و داده‌ای برای قفسه‌ها ذخیره نشده است. لطفاً یک‌بار وقتی آنلاین هستید وارد شوید.</div>';
+      }
+    }).catch(function () {
+      area.innerHTML = '<div class="empty-hint">اتصال اینترنت برقرار نیست.</div>';
+    });
+    return;
+  }
+  // <<< پایان بخش افزوده‌شده
+
   area.innerHTML = '<div class="empty-hint">در حال بارگذاری فهرست قفسه‌ها...</div>';
   apiCall('apiListShelvesWithLoad', { token: state.token }).then(function (res) {
     if (handleIfSessionExpired(res)) return;
@@ -1413,6 +1498,24 @@ function openShelfDetail(code) {
   shelvesViewState = 'detail';
   currentShelfCode = code;
   var area = document.getElementById('shelvesArea');
+
+  // >>> افزوده شد: اگر اینترنت قطع است، مستقیم از کش آفلاین بخوان (همان الگوی openShelvesList/openItemDetail)
+  if (!isOnline()) {
+    area.innerHTML = '<div class="empty-hint">در حال بارگذاری از داده‌ی محلی...</div>';
+    SyncDB.cacheGet('shelf_' + code).then(function (rec) {
+      if (rec && rec.value) {
+        showToast('نمایش داده‌ی محلی (آفلاین)', false);
+        renderShelfDetail(rec.value);
+      } else {
+        area.innerHTML = '<div class="empty-hint">اتصال اینترنت برقرار نیست و جزئیات این قفسه در داده‌ی محلی موجود نیست.</div>';
+      }
+    }).catch(function () {
+      area.innerHTML = '<div class="empty-hint">اتصال اینترنت برقرار نیست.</div>';
+    });
+    return;
+  }
+  // <<< پایان بخش افزوده‌شده
+
   area.innerHTML = '<div class="empty-hint">در حال بارگذاری جزئیات قفسه...</div>';
   apiCall('apiGetShelfDetail', { token: state.token, shelf: code }).then(function (res) {
     if (handleIfSessionExpired(res)) return;
@@ -1555,6 +1658,11 @@ document.addEventListener('visibilitychange', function () {
 // <<< پایان بخش افزوده‌شده
 
 pendingId = readIdFromLocation();
+
+if (state.serverUrl) {
+  var serverInput = document.getElementById('serverUrlInput');
+  if (serverInput) serverInput.value = state.serverUrl;
+}
 
 if (state.token && state.username) {
   enterApp();
