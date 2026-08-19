@@ -15,6 +15,13 @@
 </head>
 <body>
 
+<!-- >>> افزوده شد: نوار وضعیت آنلاین/آفلاین + دکمه‌ی «همگام‌سازی اکنون» — منطق کامل این بخش از
+     قبل در app.js (renderSyncBar/syncNow) وجود داشت، اما چون این عنصر اینجا نبود، آن تابع همیشه
+     بی‌صدا هیچ‌کاری نمی‌کرد (getElementById('syncBar') === null) و کاربر هرگز این نوار/دکمه را
+     نمی‌دید. بیرون از تگ‌های .screen قرار گرفته تا در همه‌ی صفحات (اصلی/قفسه‌ها) ثابت و در دسترس بماند. -->
+<div id="syncBar"></div>
+<!-- <<< پایان بخش افزوده‌شده -->
+
 <!-- ============ صفحه‌ی ورود ============ -->
 <div class="screen active" id="loginScreen">
   <div class="login-box">
@@ -24,6 +31,12 @@
     <div class="login-title">اسکنر انبارگردانی</div>
     <div class="login-sub">ورود با همان نام کاربری سامانه انبار</div>
     <div id="loginMsg"></div>
+
+    <div class="server-field">
+      <label style="display:block;font-size:12.5px;font-weight:700;color:#5a6472;margin-bottom:6px;">آدرس سامانه (فقط بار اول)</label>
+      <input type="text" id="serverUrlInput" placeholder="https://script.google.com/macros/s/XXXXX/exec" autocomplete="off">
+      <small>این آدرس همان لینک وب‌اپ گوگل‌شیت شماست؛ یک‌بار وارد کنید، ذخیره می‌شود.</small>
+    </div>
 
     <div class="field">
       <label>نام کاربری</label>
@@ -48,9 +61,6 @@
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><rect x="3" y="10" width="18" height="4" rx="1"/><rect x="3" y="16" width="18" height="4" rx="1"/></svg>
     </button>
   </div>
-
-  <!-- نوار وضعیت آنلاین/آفلاین + همگام‌سازی — محتوا توسط app.js (renderSyncBar) پر می‌شود -->
-  <div id="syncBar"></div>
 
   <div class="search-row">
     <input type="text" id="searchInput" placeholder="کد یا نام کالا را وارد کنید..." inputmode="search">
