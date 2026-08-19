@@ -5,13 +5,7 @@
 // =====================================================================
 
 // ===================== حافظه‌ی محلی =====================
-// >>> افزوده شد: آدرس Apps Script ثابت و داخلیِ برنامه — دیگر از کاربر گرفته نمی‌شود.
-// علت واقعیِ خرابیِ دکمه‌ی «ورود»: doLogin() به عنصر #serverUrlInput وابسته بود، اما آن فیلد
-// از index.html حذف شده بود؛ getElementById('serverUrlInput') مقدار null برمی‌گرداند و فراخوانی
-// .value روی آن بی‌صدا Exception می‌داد — یعنی کلیک روی «ورود» قبل از رسیدن به apiLogin متوقف
-// می‌شد. اکنون آدرس ثابت از همینجا خوانده می‌شود و هیچ فیلدی در فرم لازم نیست.
-var APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbypZ_VKrsHl2facqbeY263LQeE812J-J2kcmjtooiFfCQZJQQp00JLlc0EoCWwG4IXm/exec';
-// <<< پایان بخش افزوده‌شده
+var LS_SERVER = 'wh_scanner_server_url';
 var LS_TOKEN = 'wh_scanner_token';
 var LS_USER = 'wh_scanner_username';
 var LS_ROLE = 'wh_scanner_role';
@@ -22,7 +16,7 @@ var LS_LAST_SYNC = 'wh_scanner_last_sync';
 // <<< پایان بخش افزوده‌شده
 
 var state = {
-  serverUrl: APPS_SCRIPT_URL, // >>> تغییر یافت: دیگر از localStorage/ورودی کاربر خوانده نمی‌شود
+  serverUrl: localStorage.getItem(LS_SERVER) || '',
   token: localStorage.getItem(LS_TOKEN) || '',
   username: localStorage.getItem(LS_USER) || '',
   role: localStorage.getItem(LS_ROLE) || '',
@@ -426,16 +420,36 @@ function handleIfSessionExpired(res) {
 
 // ===================== ورود =====================
 function doLogin() {
+  var serverUrl = document.getElementById('serverUrlInput').value.trim();
   var username = document.getElementById('loginUsername').value.trim();
   var password = document.getElementById('loginPassword').value;
   var msgBox = document.getElementById('loginMsg');
   var btn = document.getElementById('loginBtn');
   msgBox.innerHTML = '';
 
+  if (!serverUrl) {
+    msgBox.innerHTML = '<div class="msg err">کادر «آدرس سامانه» خالی است. آدرس Apps Script (.../exec) را پیست کنید.</div>';
+    return;
+  }
+  if (serverUrl.indexOf('http') !== 0) {
+    msgBox.innerHTML = '<div class="msg err">آدرس سامانه باید با https:// شروع شود.</div>';
+    return;
+  }
+  if (serverUrl.indexOf('github.io') !== -1) {
+    msgBox.innerHTML = '<div class="msg err">این آدرس گیت‌هاب‌پیجز است (همین اپ)، نه آدرس Apps Script.</div>';
+    return;
+  }
+  if (serverUrl.indexOf('/exec') === -1) {
+    msgBox.innerHTML = '<div class="msg err">آدرس واردشده باید به exec ختم شود.</div>';
+    return;
+  }
   if (!username || !password) {
     msgBox.innerHTML = '<div class="msg err">نام کاربری و رمز عبور را وارد کنید.</div>';
     return;
   }
+
+  state.serverUrl = serverUrl.replace(/\/$/, '');
+  localStorage.setItem(LS_SERVER, state.serverUrl);
 
   btn.disabled = true; btn.textContent = 'در حال ورود...';
   apiCall('apiLogin', { username: username, password: password }).then(function (res) {
@@ -1340,6 +1354,27 @@ function openShelvesList() {
   currentShelfCode = null;
   showScreen('shelvesScreen');
   var area = document.getElementById('shelvesArea');
+
+  // >>> افزوده شد: اگر اینترنت قطع است، مستقیم از کش آفلاین بخوان (بدون تلاش برای apiCall).
+  // قبلاً این تابع بر خلاف جست‌وجو/جزئیات کالا، این بررسی را نداشت و همیشه اول تلاش برای
+  // درخواست شبکه می‌کرد — که وقتی واقعاً آفلاین بود، تا timeout (۱۵ ثانیه) طول می‌کشید و پیام
+  // خطای «اتصال اینترنت را بررسی کنید» به‌جای داده‌ی محلیِ موجود نمایش داده می‌شد.
+  if (!isOnline()) {
+    area.innerHTML = '<div class="empty-hint">در حال بارگذاری از داده‌ی محلی...</div>';
+    SyncDB.cacheGet('shelves_list').then(function (rec) {
+      if (rec && rec.value && rec.value.length) {
+        showToast('نمایش داده‌ی محلی (آفلاین)', false);
+        renderShelvesList(rec.value);
+      } else {
+        area.innerHTML = '<div class="empty-hint">اتصال اینترنت برقرار نیست و داده‌ای برای قفسه‌ها ذخیره نشده است. لطفاً یک‌بار وقتی آنلاین هستید وارد شوید.</div>';
+      }
+    }).catch(function () {
+      area.innerHTML = '<div class="empty-hint">اتصال اینترنت برقرار نیست.</div>';
+    });
+    return;
+  }
+  // <<< پایان بخش افزوده‌شده
+
   area.innerHTML = '<div class="empty-hint">در حال بارگذاری فهرست قفسه‌ها...</div>';
   apiCall('apiListShelvesWithLoad', { token: state.token }).then(function (res) {
     if (handleIfSessionExpired(res)) return;
@@ -1413,6 +1448,24 @@ function openShelfDetail(code) {
   shelvesViewState = 'detail';
   currentShelfCode = code;
   var area = document.getElementById('shelvesArea');
+
+  // >>> افزوده شد: اگر اینترنت قطع است، مستقیم از کش آفلاین بخوان (همان الگوی openShelvesList/openItemDetail)
+  if (!isOnline()) {
+    area.innerHTML = '<div class="empty-hint">در حال بارگذاری از داده‌ی محلی...</div>';
+    SyncDB.cacheGet('shelf_' + code).then(function (rec) {
+      if (rec && rec.value) {
+        showToast('نمایش داده‌ی محلی (آفلاین)', false);
+        renderShelfDetail(rec.value);
+      } else {
+        area.innerHTML = '<div class="empty-hint">اتصال اینترنت برقرار نیست و جزئیات این قفسه در داده‌ی محلی موجود نیست.</div>';
+      }
+    }).catch(function () {
+      area.innerHTML = '<div class="empty-hint">اتصال اینترنت برقرار نیست.</div>';
+    });
+    return;
+  }
+  // <<< پایان بخش افزوده‌شده
+
   area.innerHTML = '<div class="empty-hint">در حال بارگذاری جزئیات قفسه...</div>';
   apiCall('apiGetShelfDetail', { token: state.token, shelf: code }).then(function (res) {
     if (handleIfSessionExpired(res)) return;
@@ -1555,6 +1608,11 @@ document.addEventListener('visibilitychange', function () {
 // <<< پایان بخش افزوده‌شده
 
 pendingId = readIdFromLocation();
+
+if (state.serverUrl) {
+  var serverInput = document.getElementById('serverUrlInput');
+  if (serverInput) serverInput.value = state.serverUrl;
+}
 
 if (state.token && state.username) {
   enterApp();
