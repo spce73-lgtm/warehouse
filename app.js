@@ -417,7 +417,19 @@ function syncNow(manual) {
 var jsonpCounter = 0;
 function apiCall(action, params) {
   return new Promise(function (resolve, reject) {
+    // >>> اصلاح شد: قبلاً فقط کپیِ حافظه‌ای state.serverUrl بررسی می‌شد. اگر به هر دلیلی (مثلاً
+    // در برخی مرورگرها/حالت PWA نصب‌شده روی گوشی) این کپی در حافظه خالی بماند درحالی‌که خودِ
+    // localStorage — همان جایی که doLogin() آدرس را در آن ذخیره کرده — مقدار دارد، این باعث
+        // می‌شد Full Sync (و هر apiCall دیگری) با «آدرس سامانه تنظیم نشده» شکست بخورد، با اینکه
+        // کاربر واقعاً وارد شده و آدرس را قبلاً وارد کرده بود. اصلاح: همیشه از همان منبع واحد و
+        // موجود (localStorage با همان کلید LS_SERVER که ورود استفاده می‌کند) به‌عنوان نسخه‌ی
+        // پشتیبان بخوانیم — بدون هیچ تنظیم/کلید جدید، و بدون درخواست دوباره از کاربر.
+    if (!state.serverUrl) {
+      var storedServerUrl = localStorage.getItem(LS_SERVER);
+      if (storedServerUrl) state.serverUrl = storedServerUrl;
+    }
     if (!state.serverUrl) { reject(new Error('آدرس سامانه تنظیم نشده.')); return; }
+    // <<< پایان بخش اصلاح‌شده
 
     var cbName = 'whCb_' + (jsonpCounter++) + '_' + Date.now();
     var script = document.createElement('script');
