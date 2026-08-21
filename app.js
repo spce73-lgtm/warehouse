@@ -903,15 +903,22 @@ function renderItemDetail(item) {
     }).join('') + '</div>';
   }
 
-  // موجودی به‌تفکیک انبار (فقط اگر کالا در بیش از یک انبار ثبت شده باشد)
+  // موجودی به‌تفکیک انبار
+  // >>> اصلاح شد: قبلاً فقط وقتی کالا در بیش از یک انبار بود نمایش داده می‌شد (warehouses.length > 1)؛
+  // یعنی برای کالاهای تک‌انباره این بخش اصلاً رندر نمی‌شد. حالا با هر تعداد انبار (حتی یکی) نمایش
+  // داده می‌شود، چون داده‌ی «کد/نام انبار + موجودی» برای کاربر همیشه مفید است، نه فقط در حالت چندانباره.
   var warehousesHtml = '';
   var warehouses = item.warehouses || [];
-  if (warehouses.length > 1) {
+  if (warehouses.length > 0) {
     warehousesHtml = '<div class="section-title">موجودی به تفکیک انبار</div><div class="wh-grid">' +
       warehouses.map(function (w) {
-        return '<div class="wh-item"><div class="k">' + escapeHtml(w.warehouse) + '</div><div class="v">' + escapeHtml(String(w.qty)) + '</div></div>';
+        return '<div class="wh-item" style="display:flex;align-items:center;justify-content:space-between;padding:11px 13px;background:#f7f8fa;border-radius:10px;margin-bottom:7px;">' +
+          '<div class="k" style="font-size:13.5px;font-weight:700;color:#3f4750;">🏬 ' + escapeHtml(w.warehouse) + '</div>' +
+          '<div class="v" style="font-size:14.5px;font-weight:800;color:#0f4c81;">' + escapeHtml(String(w.qty)) + '</div>' +
+        '</div>';
       }).join('') + '</div>';
   }
+  // <<< پایان بخش اصلاح‌شده
 
   // آخرین شمارش ثبت‌شده (در یک سال اخیر)
   var lastCountHtml = '';
@@ -944,14 +951,33 @@ function renderItemDetail(item) {
   var shelves = item.shelves || [];
   var shelvesHtml = '';
   if (shelves.length > 0) {
+    // >>> اصلاح شد: هر قفسه اکنون یک ردیف کامل است (کد قفسه + موجودی + نوار ظرفیت اگر داده‌اش
+    // موجود باشد)، نه فقط یک خط متن. اگر سرور فیلدهای ظرفیت را برای این قفسه هم برگردانده باشد
+    // (همان شکل capacityKg/currentLoad/usagePercent/loadStatus که در «ظرفیت قفسه» استفاده می‌شود)،
+    // نوار درصد بار هم نمایش داده می‌شود؛ در غیر این صورت فقط کد+موجودی نشان داده می‌شود (بدون خطا).
     shelvesHtml = '<div class="section-title">موجودی به تفکیک قفسه</div><div class="shelves-list">' +
       shelves.map(function (s) {
-        return '<div class="shelf-row-view">' +
-          '<div class="shelf-row-code">▾ قفسه ' + escapeHtml(s.shelfCode) + '</div>' +
-          '<div class="shelf-row-qty">موجودی: ' + escapeHtml(s.qty === '' || s.qty === null || s.qty === undefined ? '—' : String(s.qty)) + '</div>' +
+        var hasLoad = s.usagePercent !== undefined && s.usagePercent !== null;
+        var loadColor = hasLoad ? shelfLoadStatusColorClient_(s.loadStatus) : null;
+        var barHtml = hasLoad ? '<div style="margin-top:6px;">' + shelfUsageBarHtmlClient_(s.usagePercent, loadColor) + '</div>' : '';
+        return '<div class="shelf-row-view" style="background:#fff;border:1px solid #eceef1;border-radius:10px;padding:11px 13px;margin-bottom:8px;">' +
+          '<div style="display:flex;align-items:center;justify-content:space-between;">' +
+            '<div class="shelf-row-code" style="font-size:13.5px;font-weight:800;color:#3f4750;">🗄️ قفسه ' + escapeHtml(s.shelfCode) + '</div>' +
+            '<div class="shelf-row-qty" style="font-size:14px;font-weight:800;color:#0f4c81;">' + escapeHtml(s.qty === '' || s.qty === null || s.qty === undefined ? '—' : String(s.qty)) + '</div>' +
+          '</div>' +
+          barHtml +
         '</div>';
-      }).join('') + '</div>';
+      }).join('') +
+      // میان‌بر «افزودن قفسه»: همان فرمِ موجودِ addShelfAssignment() را در پایین صفحه باز/نمایان
+      // می‌کند (بدون تکرار منطق) — فقط برای کاربرانی که دسترسی انبار دارند (شرط زیر با همان
+      // نشانه‌ی موجود در بخش «وزن و قفسه» یکسان است)
+      (item.shelfDisplay !== undefined
+        ? '<button type="button" class="btn btn-secondary" style="width:100%;padding:11px;font-size:13.5px;font-weight:700;" onclick="scrollToAddShelf_()">+ افزودن قفسه</button>'
+        : '') +
+    '</div>';
+    // <<< پایان بخش اصلاح‌شده
   }
+  // <<< پایان بخش افزوده‌شده
 
   var shelfSelectHtml = '';
   if (shelves.length > 1) {
@@ -985,31 +1011,42 @@ function renderItemDetail(item) {
     var shelfCapacityHtml = '';
     if (item.shelfLoad) {
       var slColor = shelfLoadStatusColorClient_(item.shelfLoad.loadStatus);
+      // >>> اصلاح شد: به‌جای بلوک متنیِ ساده، حالا یک ردیف کاملِ جدول‌مانند (کد قفسه، ظرفیت،
+      // بار، درصد+نوار پیشرفت، وضعیت با رنگ) نمایش داده می‌شود — هم‌سبک با صفحه‌ی «قفسه‌ها»
       shelfCapacityHtml =
-        '<div style="border-top:1px dashed #e4e7ea;margin:10px 0;padding-top:10px;">' +
-          '<div style="font-size:12px;font-weight:800;color:#3f4750;margin-bottom:6px;">ظرفیت قفسه‌ی ' + escapeHtml(item.shelfCode) + '</div>' +
-          '<div class="item-fields" style="margin-bottom:6px;">' +
+        '<div class="section-title" style="margin-top:14px;">ظرفیت قفسه</div>' +
+        '<div style="background:#fff;border:1px solid #eceef1;border-radius:10px;padding:12px 14px;">' +
+          '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">' +
+            '<div style="font-size:13.5px;font-weight:800;color:#3f4750;">🗄️ قفسه ' + escapeHtml(item.shelfCode) + '</div>' +
+            '<div style="font-size:12px;font-weight:800;color:' + slColor + ';">' + escapeHtml(item.shelfLoad.loadStatus) + '</div>' +
+          '</div>' +
+          '<div class="item-fields" style="margin-bottom:8px;">' +
             '<div class="item-field"><div class="k">حداکثر ظرفیت</div><div class="v">' + (item.shelfLoad.capacityKg === null ? '—' : escapeHtml(String(item.shelfLoad.capacityKg)) + ' kg') + '</div></div>' +
             '<div class="item-field"><div class="k">بار فعلی قفسه</div><div class="v">' + escapeHtml(String(item.shelfLoad.currentLoad)) + ' kg</div></div>' +
             '<div class="item-field"><div class="k">ظرفیت باقیمانده</div><div class="v">' + (item.shelfLoad.remainingCapacity === null ? '—' : escapeHtml(String(item.shelfLoad.remainingCapacity)) + ' kg') + '</div></div>' +
           '</div>' +
-          '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">' +
-            shelfUsageBarHtmlClient_(item.shelfLoad.usagePercent, slColor) +
-            '<span style="font-size:11px;font-weight:700;color:' + slColor + ';">' + escapeHtml(item.shelfLoad.loadStatus) + '</span>' +
-          '</div>' +
+          shelfUsageBarHtmlClient_(item.shelfLoad.usagePercent, slColor) +
         '</div>';
     }
     // <<< پایان بخش افزوده‌شده
 
+    // >>> اصلاح شد: «وزن» حالا یک بخشِ مجزا با عنوانِ ساده‌ی «وزن» و یک ردیفِ تمیز (واحد | وزن فعلی
+    // | ویرایش) است، هم‌راستا با مرجع طراحی. وزن کل موجودی (که قبلاً هم بود) حذف نشده، فقط به یک
+    // ردیفِ کوچکِ مکمل زیرِ همان کارت منتقل شده تا داده‌ای از دست نرود. «قفسه» به بخش ظرفیت قفسه‌ی
+    // بالا و/یا فهرستِ «موجودی به تفکیک قفسه» منتقل شده تا وزن و قفسه با هم قاطی نباشند.
     weightShelfHtml =
-      '<div class="section-title">وزن و قفسه</div>' +
-      '<div class="item-fields">' +
-        '<div class="item-field"><div class="k">وزن واحد</div><div class="v" id="unitWeightView">' + escapeHtml(item.unitWeightDisplay) + '</div></div>' +
-        '<div class="item-field"><div class="k">وزن کل موجودی</div><div class="v" id="totalWeightView">' + escapeHtml(item.totalWeightDisplay) + '</div></div>' +
-        '<div class="item-field"><div class="k">قفسه</div><div class="v" id="shelfView">' + escapeHtml(item.shelfDisplay) + '</div></div>' +
+      '<div class="section-title">وزن</div>' +
+      '<div style="background:#fff;border:1px solid #eceef1;border-radius:10px;padding:12px 14px;">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">' +
+          '<div style="display:flex;align-items:baseline;gap:14px;">' +
+            '<span style="font-size:12px;color:#8b94a0;font-weight:700;">واحد</span>' +
+            '<span style="font-size:17px;font-weight:800;color:#1c1f24;" id="unitWeightView">' + escapeHtml(item.unitWeightDisplay) + '</span>' +
+          '</div>' +
+          '<button class="btn btn-secondary" id="toggleWeightShelfBtn" style="padding:9px 14px;font-size:13px;" onclick="toggleWeightShelfEdit()">✎ ویرایش</button>' +
+        '</div>' +
+        '<div style="margin-top:8px;padding-top:8px;border-top:1px dashed #e4e7ea;font-size:12px;color:#8b94a0;">وزن کل موجودی: <b style="color:#3f4750;" id="totalWeightView">' + escapeHtml(item.totalWeightDisplay) + '</b> · قفسه: <b style="color:#3f4750;" id="shelfView">' + escapeHtml(item.shelfDisplay) + '</b></div>' +
       '</div>' +
       shelfCapacityHtml +
-      '<button class="btn btn-secondary" id="toggleWeightShelfBtn" onclick="toggleWeightShelfEdit()">ویرایش وزن / قفسه</button>' +
       '<div class="weight-shelf-edit" id="weightShelfEditBox" style="display:none;">' +
         '<label class="count-label">وزن واحد (kg)</label>' +
         '<input type="number" class="qty-input" id="unitWeightInput" step="0.001" min="0" inputmode="decimal" value="' + (item.unitWeight === '' ? '' : escapeHtml(String(item.unitWeight))) + '" placeholder="مثلاً 2.5">' +
@@ -1188,8 +1225,20 @@ function toggleWeightShelfEdit() {
   var open = box.style.display !== 'none';
   box.style.display = open ? 'none' : 'block';
   var btn = document.getElementById('toggleWeightShelfBtn');
-  if (btn) btn.textContent = open ? 'ویرایش وزن / قفسه' : 'انصراف از ویرایش';
+  if (btn) btn.textContent = open ? '✎ ویرایش' : 'انصراف از ویرایش';
 }
+
+// >>> افزوده شد: میان‌بر «+ افزودن قفسه» در بالای صفحه (فهرست «موجودی به تفکیک قفسه») — به‌جای
+// تکرار فرم افزودن قفسه، همان فرم موجود در پایین صفحه («قفسه‌های این کالا») را باز می‌کند و به
+// آن اسکرول می‌کند. هیچ منطق/APIای تکرار نشده است.
+function scrollToAddShelf_() {
+  var box = document.getElementById('weightShelfEditBox');
+  if (box && box.style.display === 'none') toggleWeightShelfEdit();
+  var target = document.getElementById('newShelfSelect') || document.getElementById('shelfAssignmentsBox');
+  if (target && target.scrollIntoView) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  if (target && target.focus) target.focus();
+}
+// <<< پایان بخش افزوده‌شده
 
 // >>> افزوده شد: صف‌کردن آفلاینِ ویرایش وزن/قفسه (وقتی اینترنت قطع است یا ارسال آنلاین ناموفق بود)
 // چون محاسبه‌ی وزن کل و بار قفسه فقط سمت سرور انجام می‌شود، در حالت آفلاین نمی‌توان صفحه‌ی
@@ -1485,26 +1534,29 @@ function renderShelvesList(shelves) {
     area.innerHTML = '<div class="empty-hint">قفسه‌ای یافت نشد.</div>';
     return;
   }
+  // >>> اصلاح شد: افزایش اندازه‌ی فونت/فاصله‌گذاری برای خوانایی بهتر روی موبایل (بدون تغییر
+  // در ساختار کلیک/داده) — کارت هر قفسه کمی بزرگ‌تر و لمس‌پذیرتر شده است.
   var html = '<div class="section-title">قفسه‌ها (' + shelves.length + ')</div><div class="result-list">';
   shelves.forEach(function (s) {
     var color = shelfLoadStatusColorClient_(s.loadStatus);
     html +=
-      '<div class="result-row" style="border-inline-start:3px solid ' + color + ';" onclick="openShelfDetail(\'' + escapeHtml(s.code).replace(/'/g, "\\\\'") + '\')">' +
-        '<div class="result-thumb">🗄️</div>' +
+      '<div class="result-row" style="border-inline-start:4px solid ' + color + ';padding:13px 14px;" onclick="openShelfDetail(\'' + escapeHtml(s.code).replace(/'/g, "\\\\'") + '\')">' +
+        '<div class="result-thumb" style="font-size:22px;">🗄️</div>' +
         '<div class="result-info">' +
-          '<div class="result-name">' + escapeHtml(s.code) + (s.location ? ' — ' + escapeHtml(s.location) : '') + '</div>' +
-          '<div class="result-meta">' +
-            '<span style="color:' + color + ';font-weight:700;">' + escapeHtml(s.loadStatus) + '</span>' +
+          '<div class="result-name" style="font-size:14.5px;font-weight:800;">' + escapeHtml(s.code) + (s.location ? ' — ' + escapeHtml(s.location) : '') + '</div>' +
+          '<div class="result-meta" style="font-size:12.5px;">' +
+            '<span style="color:' + color + ';font-weight:800;">' + escapeHtml(s.loadStatus) + '</span>' +
             '<span>بار: ' + escapeHtml(String(s.currentLoad)) + ' kg' + (s.capacityKg !== null ? (' از ' + escapeHtml(String(s.capacityKg)) + ' kg') : '') + '</span>' +
             '<span>' + s.itemCount + ' کالا</span>' +
           '</div>' +
-          '<div style="margin-top:6px;">' + shelfUsageBarHtmlClient_(s.usagePercent, color) + '</div>' +
+          '<div style="margin-top:7px;">' + shelfUsageBarHtmlClient_(s.usagePercent, color) + '</div>' +
         '</div>' +
       '</div>';
   });
   html += '</div>';
   area.innerHTML = html;
 }
+// <<< پایان بخش اصلاح‌شده
 
 function openShelfDetail(code) {
   shelvesViewState = 'detail';
