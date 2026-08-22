@@ -91,7 +91,17 @@ h1,h2,h3,h4,h5,h6,
 /* فوکوس قابل‌دسترسی، فقط برای ناوبری با صفحه‌کلید */
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px;}
 
-.screen{display:none;min-height:100vh;flex-direction:column;background:var(--bg);}
+/* >>> بازطراحی شد: علت واقعیِ کوچک/جمع‌شدنِ رابط کاربری در PWA نصب‌شده روی اندروید پیدا شد —
+   در حالت standalone/WebAPK، مقدار 100vh بر اساس یک viewport «چیدمانیِ» بلندتر از صفحه‌ی واقعاً
+   قابل‌مشاهده محاسبه می‌شود (برخلاف تب Chrome که این دو معمولاً یکی هستند). چون .screen از
+   min-height:100vh استفاده می‌کرد، #resultArea (flex:1) تا همان ارتفاعِ اغراق‌شده کش می‌آمد و
+   ناوبری پایین (position:fixed;bottom:0) به‌جای ته صفحه‌ی واقعی، به ته همان ویوپورت بلندترِ
+   نادرست می‌چسبید — دقیقاً همان چیزی که در اسکرین‌شات دیده شد (محتوا بالا، فاصله‌ی خالیِ بزرگ،
+   ناوبری خیلی پایین‌تر از انتظار). واحد dvh دقیقاً برای رفع همین مشکل طراحی شده؛ به‌صورت
+   افزایشی بعد از vh اضافه شده تا مرورگرهای قدیمی‌تر (که dvh را نمی‌شناسند) همچنان به‌درستی از
+   همان vh استفاده کنند و چیزی نشکند. */
+.screen{display:none;min-height:100vh;min-height:100dvh;flex-direction:column;background:var(--bg);}
+/* <<< پایان بخش بازطراحی‌شده */
 .screen.active{display:flex;animation:screenIn var(--dur) var(--ease);}
 @keyframes screenIn{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
 
@@ -413,6 +423,18 @@ body.has-bottom-nav #shelvesArea{padding-bottom:calc(78px + env(safe-area-inset-
 .cap-bar-track{background:#e9edf2;border-radius:6px;height:7px;width:64px;overflow:hidden;flex-shrink:0;}
 .cap-bar-fill{height:100%;border-radius:6px;}
 
+/* >>> افزوده شد: فیلتر لحظه‌ایِ هر ستون در جدول «لیست قفسه‌ها» */
+.shelf-th{text-align:center;vertical-align:top;}
+.shelf-filter-input,.shelf-filter-select{
+  width:100%;min-width:64px;padding:6px 5px;font-size:10.5px;border:1.5px solid var(--border);border-radius:6px;
+  font-family:inherit;background:#fff;margin-top:5px;color:var(--text);
+}
+.shelf-filter-input:focus,.shelf-filter-select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-light);}
+.data-table tbody tr.clickable{cursor:pointer;transition:background var(--dur-fast) var(--ease);}
+.data-table tbody tr.clickable:hover,
+.data-table tbody tr.clickable:active{background:var(--accent-50);}
+/* <<< پایان بخش افزوده‌شده */
+
 /* =====================================================================
    بازطراحی — بخش «وزن» (ردیف فشرده + دکمه‌ی ویرایش)
    ===================================================================== */
@@ -438,28 +460,33 @@ body.has-bottom-nav #shelvesArea{padding-bottom:calc(78px + env(safe-area-inset-
    بازطراحی — «ثبت شمارش انبارگردانی» چندردیفی
    ===================================================================== */
 .count-rows{display:flex;flex-direction:column;gap:9px;margin-bottom:11px;}
-.count-row{display:flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-md);padding:8px;}
-.count-row select.count-row-wh,
-.count-row select.count-row-shelf{
-  flex:1.25;min-width:0;padding:9px 6px;font-size:11.5px;border:1.5px solid var(--border);border-radius:8px;
+/* >>> بازطراحی شد: هر ردیف حالا ۴ فیلد دارد (انبار، نام قفسه، کد قفسه، تعداد) — برای خوانایی
+   در موبایل، به‌جای یک ردیفِ افقیِ فشرده، در دو خط چیده می‌شود: خط اول = انبار + نام قفسه
+   (فیلترها)، خط دوم = کد قفسه (نتیجه‌ی فیلتر) + تعداد + حذف. */
+.count-row{display:flex;flex-direction:column;gap:7px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-md);padding:9px;}
+.count-row-line1{display:flex;gap:6px;}
+.count-row-line1 select{
+  flex:1;min-width:0;padding:9px 6px;font-size:11.5px;border:1.5px solid var(--border);border-radius:8px;
   font-family:inherit;background:#fff;color:var(--text);
 }
-.count-row select.count-row-wh:focus,
-.count-row select.count-row-shelf:focus{outline:none;border-color:var(--accent);}
-.count-row .count-row-code{
-  flex:.85;min-width:0;font-family:"SF Mono",Consolas,monospace;font-size:11px;color:var(--accent);
-  text-align:center;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+.count-row-line1 select:focus{outline:none;border-color:var(--accent);}
+.count-row-line2{display:flex;align-items:center;gap:6px;}
+.count-row-line2 select.count-row-shelf{
+  flex:1;min-width:0;padding:9px 6px;font-size:11.5px;border:1.5px solid var(--border);border-radius:8px;
+  font-family:"SF Mono",Consolas,monospace;background:#fff;color:var(--accent);
 }
-.count-row input.count-row-qty{
-  flex:.72;min-width:52px;padding:9px 4px;font-size:14.5px;font-weight:800;text-align:center;
+.count-row-line2 select.count-row-shelf:focus{outline:none;border-color:var(--accent);}
+.count-row-line2 input.count-row-qty{
+  flex:0 0 78px;min-width:0;padding:9px 4px;font-size:14.5px;font-weight:800;text-align:center;
   border:1.5px solid var(--border);border-radius:8px;font-family:inherit;background:#fff;
 }
-.count-row input.count-row-qty:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-light);}
-.count-row .count-row-del{
+.count-row-line2 input.count-row-qty:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-light);}
+.count-row-line2 .count-row-del{
   flex:0 0 auto;width:34px;height:34px;border-radius:8px;border:1px solid #f3d3d0;background:var(--bad-light);
   color:var(--bad);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:transform var(--dur-fast) var(--ease);
 }
-.count-row .count-row-del:active{transform:scale(.9);}
+.count-row-line2 .count-row-del:active{transform:scale(.9);}
+/* <<< پایان بخش بازطراحی‌شده */
 .add-row-btn{
   width:100%;padding:12px;border:1.5px dashed var(--border-strong);border-radius:var(--r-md);background:var(--surface);
   color:var(--text-soft);font-weight:700;font-size:12.5px;cursor:pointer;font-family:inherit;
