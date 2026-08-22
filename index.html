@@ -12,15 +12,20 @@
 <meta name="apple-mobile-web-app-title" content="اسکنر انبار">
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="stylesheet" href="style.css">
+<!-- >>> افزوده شد: استایل فقط برای کلاس‌های کاملاً جدیدِ نوار پایین ناوبری (bottom-nav/bn-item)
+     — چون style.css را نمی‌بینیم، این کلاس‌های تازه اینجا تعریف شده‌اند تا هیچ تداخلی با
+     قوانین موجود در آن فایل رخ ندهد. padding-bottom روی .screen هم فقط برای اینکه محتوا زیر
+     نوار ثابت پنهان نشود اضافه شده؛ چیزی از چیدمان قبلی حذف/بازنویسی نشده است. -->
+<style>
+  .screen{padding-bottom:64px;}
+  .bottom-nav{position:fixed;bottom:0;inset-inline-start:0;inset-inline-end:0;height:58px;background:#fff;border-top:1px solid #eceef1;display:flex;align-items:stretch;z-index:50;box-shadow:0 -2px 10px rgba(0,0,0,.05);}
+  .bn-item{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;background:none;border:none;color:#8b94a0;font-size:11px;font-weight:700;font-family:inherit;cursor:pointer;padding:6px 4px;}
+  .bn-item:active{background:#f7f8fa;}
+  .bn-item.active{color:#0f4c81;}
+</style>
+<!-- <<< پایان بخش افزوده‌شده -->
 </head>
 <body>
-
-<!-- >>> افزوده شد: نوار وضعیت آنلاین/آفلاین + دکمه‌ی «همگام‌سازی اکنون» — منطق کامل این بخش از
-     قبل در app.js (renderSyncBar/syncNow) وجود داشت، اما چون این عنصر اینجا نبود، آن تابع همیشه
-     بی‌صدا هیچ‌کاری نمی‌کرد (getElementById('syncBar') === null) و کاربر هرگز این نوار/دکمه را
-     نمی‌دید. بیرون از تگ‌های .screen قرار گرفته تا در همه‌ی صفحات (اصلی/قفسه‌ها) ثابت و در دسترس بماند. -->
-<div id="syncBar"></div>
-<!-- <<< پایان بخش افزوده‌شده -->
 
 <!-- ============ صفحه‌ی ورود ============ -->
 <div class="screen active" id="loginScreen">
@@ -31,12 +36,6 @@
     <div class="login-title">اسکنر انبارگردانی</div>
     <div class="login-sub">ورود با همان نام کاربری سامانه انبار</div>
     <div id="loginMsg"></div>
-
-    <div class="server-field">
-      <label style="display:block;font-size:12.5px;font-weight:700;color:#5a6472;margin-bottom:6px;">آدرس سامانه (فقط بار اول)</label>
-      <input type="text" id="serverUrlInput" placeholder="https://script.google.com/macros/s/XXXXX/exec" autocomplete="off">
-      <small>این آدرس همان لینک وب‌اپ گوگل‌شیت شماست؛ یک‌بار وارد کنید، ذخیره می‌شود.</small>
-    </div>
 
     <div class="field">
       <label>نام کاربری</label>
@@ -52,14 +51,15 @@
 
 <!-- ============ صفحه‌ی اصلی (جست‌وجو + نتایج + جزئیات) ============ -->
 <div class="screen" id="mainScreen">
-  <div class="top-strip">
-    <button class="icon-btn" onclick="doLogout()" title="خروج">
+  <div class="top-strip" style="background:#0f4c81;color:#fff;">
+    <button class="icon-btn" onclick="doLogout()" title="خروج" style="color:#fff;">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
     </button>
-    <div class="who"><span id="whoLabel">—</span><span id="whoSub"></span></div>
-    <button class="icon-btn" id="shelvesNavBtn" onclick="openShelvesList()" title="قفسه‌ها" style="display:none;">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><rect x="3" y="10" width="18" height="4" rx="1"/><rect x="3" y="16" width="18" height="4" rx="1"/></svg>
-    </button>
+    <div class="who" style="color:#fff;"><span id="whoLabel">—</span><span id="whoSub" style="color:#cfe0f0;"></span></div>
+    <!-- >>> افزوده شد: دکمه‌ی همگام‌سازی داخل نوار آبی بالا (طبق درخواست) — محتوای کامل توسط
+         renderSyncBar() در app.js پر می‌شود؛ فقط جای این عنصر عوض شده، منطق دست‌نخورده است. -->
+    <div id="syncBar"></div>
+    <!-- <<< پایان بخش افزوده‌شده -->
   </div>
 
   <div class="search-row">
@@ -98,6 +98,26 @@
   </div>
   <div id="shelvesArea" style="padding:14px;overflow-y:auto;flex:1;"></div>
 </div>
+
+<!-- >>> افزوده شد: نوار پایینِ ناوبری (خانه | جستجو | لیست قفسه‌ها) — بیرون از تگ‌های .screen تا
+     در تمام صفحات ثابت بماند؛ نمایش/پنهانی آن با enterApp()/doLogout() در app.js کنترل می‌شود
+     (دقیقاً همان الگوی نمایش/پنهانیِ shelvesNavBtn قبلی). «لیست قفسه‌ها» فقط برای کاربران دارای
+     دسترسی انبار نشان داده می‌شود (id="bottomNavShelves")، همان‌طور که قبلاً هم همین‌طور بود. -->
+<div class="bottom-nav" id="bottomNav" style="display:none;">
+  <button class="bn-item" onclick="navGoHome_()" title="خانه">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9.5 12 3l9 6.5V21a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/></svg>
+    <span>خانه</span>
+  </button>
+  <button class="bn-item" onclick="navGoSearch_()" title="جستجو">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.6" y2="16.6"/></svg>
+    <span>جستجو</span>
+  </button>
+  <button class="bn-item" id="bottomNavShelves" onclick="openShelvesList()" title="لیست قفسه‌ها" style="display:none;">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><rect x="3" y="10" width="18" height="4" rx="1"/><rect x="3" y="16" width="18" height="4" rx="1"/></svg>
+    <span>لیست قفسه‌ها</span>
+  </button>
+</div>
+<!-- <<< پایان بخش افزوده‌شده -->
 
 <div class="toast" id="toast"></div>
 
