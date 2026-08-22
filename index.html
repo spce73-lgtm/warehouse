@@ -12,18 +12,6 @@
 <meta name="apple-mobile-web-app-title" content="اسکنر انبار">
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="stylesheet" href="style.css">
-<!-- >>> افزوده شد: استایل فقط برای کلاس‌های کاملاً جدیدِ نوار پایین ناوبری (bottom-nav/bn-item)
-     — چون style.css را نمی‌بینیم، این کلاس‌های تازه اینجا تعریف شده‌اند تا هیچ تداخلی با
-     قوانین موجود در آن فایل رخ ندهد. padding-bottom روی .screen هم فقط برای اینکه محتوا زیر
-     نوار ثابت پنهان نشود اضافه شده؛ چیزی از چیدمان قبلی حذف/بازنویسی نشده است. -->
-<style>
-  .screen{padding-bottom:64px;}
-  .bottom-nav{position:fixed;bottom:0;inset-inline-start:0;inset-inline-end:0;height:58px;background:#fff;border-top:1px solid #eceef1;display:flex;align-items:stretch;z-index:50;box-shadow:0 -2px 10px rgba(0,0,0,.05);}
-  .bn-item{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;background:none;border:none;color:#8b94a0;font-size:11px;font-weight:700;font-family:inherit;cursor:pointer;padding:6px 4px;}
-  .bn-item:active{background:#f7f8fa;}
-  .bn-item.active{color:#0f4c81;}
-</style>
-<!-- <<< پایان بخش افزوده‌شده -->
 </head>
 <body>
 
@@ -36,6 +24,12 @@
     <div class="login-title">اسکنر انبارگردانی</div>
     <div class="login-sub">ورود با همان نام کاربری سامانه انبار</div>
     <div id="loginMsg"></div>
+
+    <div class="server-field">
+      <label style="display:block;font-size:12.5px;font-weight:700;color:#5a6472;margin-bottom:6px;">آدرس سامانه (فقط بار اول)</label>
+      <input type="text" id="serverUrlInput" placeholder="https://script.google.com/macros/s/XXXXX/exec" autocomplete="off">
+      <small>این آدرس همان لینک وب‌اپ گوگل‌شیت شماست؛ یک‌بار وارد کنید، ذخیره می‌شود.</small>
+    </div>
 
     <div class="field">
       <label>نام کاربری</label>
@@ -51,16 +45,23 @@
 
 <!-- ============ صفحه‌ی اصلی (جست‌وجو + نتایج + جزئیات) ============ -->
 <div class="screen" id="mainScreen">
-  <div class="top-strip" style="background:#0f4c81;color:#fff;">
-    <button class="icon-btn" onclick="doLogout()" title="خروج" style="color:#fff;">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+
+  <!-- >>> بازطراحی شد: هدر تیره‌ی بالای صفحه — دکمه‌ی «همگام‌سازی» (+ آخرین زمان) سمت چپ بصری،
+       عنوان صفحه در وسط، اطلاعات کاربر + خروج سمت راست بصری. تمام آی‌دی‌های موردنیازِ app.js
+       (whoLabel/whoSub) دقیقاً حفظ شده‌اند تا enterApp() بدون تغییر کار کند. -->
+  <div class="app-header">
+    <button class="header-sync-btn" id="headerSyncBtn" onclick="syncNow(true)" title="همگام‌سازی">
+      <span class="header-sync-dot" id="headerSyncDot"></span>
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+      <span class="header-sync-text"><b>همگام‌سازی</b><small id="headerLastSync">آخرین همگام‌سازی: —</small></span>
     </button>
-    <div class="who" style="color:#fff;"><span id="whoLabel">—</span><span id="whoSub" style="color:#cfe0f0;"></span></div>
-    <!-- >>> افزوده شد: دکمه‌ی همگام‌سازی داخل نوار آبی بالا (طبق درخواست) — محتوای کامل توسط
-         renderSyncBar() در app.js پر می‌شود؛ فقط جای این عنصر عوض شده، منطق دست‌نخورده است. -->
-    <div id="syncBar"></div>
-    <!-- <<< پایان بخش افزوده‌شده -->
+    <div class="header-title" id="headerTitleMain">اسکنر انبارگردانی</div>
+    <button class="header-user" onclick="doLogout()" title="خروج">
+      <span class="header-user-info"><span class="header-user-name" id="whoLabel">—</span><span class="header-user-sub" id="whoSub"></span></span>
+      <span class="header-user-avatar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span>
+    </button>
   </div>
+  <!-- <<< پایان بخش بازطراحی‌شده -->
 
   <div class="search-row">
     <input type="text" id="searchInput" placeholder="کد یا نام کالا را وارد کنید..." inputmode="search">
@@ -89,37 +90,44 @@
 
 <!-- ============ صفحه‌ی «قفسه‌ها» — نظارت خودکار بار قفسه (فقط دسترسی انبار) ============ -->
 <div class="screen" id="shelvesScreen">
-  <div class="top-strip">
-    <button class="icon-btn" onclick="shelvesBack()" title="بازگشت">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+  <!-- >>> بازطراحی شد: همان هدر تیره‌ی سراسری، با دکمه‌ی بازگشت به‌جای دکمه‌ی همگام‌سازی -->
+  <div class="app-header">
+    <button class="header-back-btn" onclick="shelvesBack()" title="بازگشت">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
     </button>
-    <div class="who"><span>قفسه‌ها</span><span>نظارت بار قفسه</span></div>
-    <div style="width:36px;"></div>
+    <div class="header-title" id="headerTitleShelves">لیست قفسه‌ها</div>
+    <div style="width:36px;flex-shrink:0;"></div>
   </div>
+  <!-- <<< پایان بخش بازطراحی‌شده -->
   <div id="shelvesArea" style="padding:14px;overflow-y:auto;flex:1;"></div>
 </div>
 
-<!-- >>> افزوده شد: نوار پایینِ ناوبری (خانه | جستجو | لیست قفسه‌ها) — بیرون از تگ‌های .screen تا
-     در تمام صفحات ثابت بماند؛ نمایش/پنهانی آن با enterApp()/doLogout() در app.js کنترل می‌شود
-     (دقیقاً همان الگوی نمایش/پنهانیِ shelvesNavBtn قبلی). «لیست قفسه‌ها» فقط برای کاربران دارای
-     دسترسی انبار نشان داده می‌شود (id="bottomNavShelves")، همان‌طور که قبلاً هم همین‌طور بود. -->
-<div class="bottom-nav" id="bottomNav" style="display:none;">
-  <button class="bn-item" onclick="navGoHome_()" title="خانه">
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9.5 12 3l9 6.5V21a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/></svg>
-    <span>خانه</span>
-  </button>
-  <button class="bn-item" onclick="navGoSearch_()" title="جستجو">
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.6" y2="16.6"/></svg>
-    <span>جستجو</span>
-  </button>
-  <button class="bn-item" id="bottomNavShelves" onclick="openShelvesList()" title="لیست قفسه‌ها" style="display:none;">
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><rect x="3" y="10" width="18" height="4" rx="1"/><rect x="3" y="16" width="18" height="4" rx="1"/></svg>
+<div class="toast" id="toast"></div>
+
+<!-- >>> افزوده شد: ناوبری پایین سراسری — فقط وقتی کاربر وارد شده (mainScreen/shelvesScreen)
+     نمایش داده می‌شود؛ نمایش/پنهان‌سازی و آی‌تم فعال توسط showScreen()/setActiveNav() در
+     app.js مدیریت می‌شود. ترتیب DOM (راست به چپ در RTL): لیست قفسه‌ها، جستجو، همگام‌سازی، خانه —
+     دقیقاً مطابق چیدمان خواسته‌شده (راست: لیست قفسه‌ها … چپ: خانه). -->
+<nav class="bottom-nav" id="bottomNav" style="display:none;">
+  <button class="nav-item" id="navShelvesBtn" onclick="navGoShelves()" style="display:none;">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><rect x="3" y="10" width="18" height="4" rx="1"/><rect x="3" y="16" width="18" height="4" rx="1"/></svg>
     <span>لیست قفسه‌ها</span>
   </button>
-</div>
+  <button class="nav-item" id="navSearchBtn" onclick="navGoSearch()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.6" y2="16.6"/></svg>
+    <span>جستجو</span>
+  </button>
+  <button class="nav-item" id="navSyncBtn" onclick="navGoSync()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+    <span>همگام‌سازی</span>
+    <small id="navLastSync"></small>
+  </button>
+  <button class="nav-item active" id="navHomeBtn" onclick="navGoHome()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+    <span>خانه</span>
+  </button>
+</nav>
 <!-- <<< پایان بخش افزوده‌شده -->
-
-<div class="toast" id="toast"></div>
 
 <script src="app.js"></script>
 </body>
