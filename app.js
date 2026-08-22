@@ -964,6 +964,101 @@ function findUnitFromFields_(item) {
   }
   return '';
 }
+
+// >>> افزوده شد: انتخاب دومرحله‌ایِ قفسه (نام قفسه → کد قفسه) — در همه‌جا (پنل وزن/تخصیص قفسه،
+// ردیف‌های شمارش) از همین دو تابع استفاده می‌شود. منبع داده دقیقاً همان activeShelves موجود
+// (از شیت «قفسه‌ها») است؛ فقط بر اساس ستون «محل» (به‌عنوان «نام قفسه») گروه‌بندی می‌شود — هیچ
+// داده‌ی جدید/تکراری ساخته نمی‌شود.
+function groupShelvesByName_(activeShelves) {
+  var groups = {}; var order = [];
+  (activeShelves || []).forEach(function (s) {
+    var name = s.location || s.code;
+    if (!groups[name]) { groups[name] = []; order.push(name); }
+    groups[name].push(s);
+  });
+  return { groups: groups, order: order };
+}
+
+var shelfCascadeGroups_ = {}; // idِ سلکت «نام قفسه» -> گروه‌بندی مربوطه (برای onShelfNameCascadeChange_)
+
+// جفت سلکتِ عمودی (با برچسب) برای فرم‌های پنل وزن/تخصیص قفسه — id سلکتِ «کد» همان چیزی است
+// که کد قبلی/سرور انتظار دارد (مثلاً shelfSelect یا newShelfSelect)، تا هیچ منطق دیگری لازم
+// نباشد تغییر کند.
+function buildShelfCascadeHtml_(codeSelectId, activeShelves, selectedCode, emptyCodeLabel) {
+  var g = groupShelvesByName_(activeShelves);
+  var nameSelectId = codeSelectId + 'Name';
+  shelfCascadeGroups_[nameSelectId] = g;
+
+  var selectedName = '';
+  if (selectedCode) {
+    for (var i = 0; i < g.order.length; i++) {
+      if (g.groups[g.order[i]].some(function (s) { return s.code === selectedCode; })) { selectedName = g.order[i]; break; }
+    }
+  }
+
+  var nameOptions = '<option value="">— انتخاب نام قفسه —</option>' + g.order.map(function (nm) {
+    return '<option value="' + escapeHtml(nm) + '"' + (nm === selectedName ? ' selected' : '') + '>' + escapeHtml(nm) + '</option>';
+  }).join('');
+
+  var codeOptions = '<option value="">' + escapeHtml(emptyCodeLabel || '— ابتدا نام قفسه را انتخاب کنید —') + '</option>';
+  if (selectedName && g.groups[selectedName]) {
+    codeOptions += g.groups[selectedName].map(function (s) {
+      return '<option value="' + escapeHtml(s.code) + '"' + (s.code === selectedCode ? ' selected' : '') + '>' + escapeHtml(s.code) + '</option>';
+    }).join('');
+  }
+  if (selectedCode && (!selectedName || g.groups[selectedName].every(function (s) { return s.code !== selectedCode; }))) {
+    codeOptions += '<option value="' + escapeHtml(selectedCode) + '" selected>' + escapeHtml(selectedCode) + ' (غیرفعال/نامعتبر)</option>';
+  }
+
+  return '<label class="count-label">نام قفسه</label>' +
+    '<select class="wh-select shelf-name-select" id="' + nameSelectId + '" data-code-target="' + codeSelectId + '" onchange="onShelfNameCascadeChange_(this)" style="margin-bottom:8px;">' + nameOptions + '</select>' +
+    '<label class="count-label">کد قفسه</label>' +
+    '<select class="wh-select shelf-code-select" id="' + codeSelectId + '">' + codeOptions + '</select>';
+}
+
+// جفت سلکتِ افقیِ فشرده برای ردیف‌های «ثبت شمارش انبارگردانی» — سلکتِ کد همچنان کلاس
+// count-row-shelf را دارد تا submitAll() بدون هیچ تغییری همان‌طور که بود کار کند.
+function buildCountRowShelfCascadeHtml_(codeSelectId, activeShelves, selectedCode) {
+  var g = groupShelvesByName_(activeShelves);
+  var nameSelectId = codeSelectId + 'Name';
+  shelfCascadeGroups_[nameSelectId] = g;
+
+  var selectedName = '';
+  if (selectedCode) {
+    for (var i = 0; i < g.order.length; i++) {
+      if (g.groups[g.order[i]].some(function (s) { return s.code === selectedCode; })) { selectedName = g.order[i]; break; }
+    }
+  }
+
+  var nameOptions = '<option value="">— نام قفسه —</option>' + g.order.map(function (nm) {
+    return '<option value="' + escapeHtml(nm) + '"' + (nm === selectedName ? ' selected' : '') + '>' + escapeHtml(nm) + '</option>';
+  }).join('');
+  var codeOptions = '<option value="">— کد قفسه —</option>';
+  if (selectedName && g.groups[selectedName]) {
+    codeOptions += g.groups[selectedName].map(function (s) {
+      return '<option value="' + escapeHtml(s.code) + '"' + (s.code === selectedCode ? ' selected' : '') + '>' + escapeHtml(s.code) + '</option>';
+    }).join('');
+  }
+
+  return '<select class="count-row-shelf-name" id="' + nameSelectId + '" data-code-target="' + codeSelectId + '" onchange="onShelfNameCascadeChange_(this)">' + nameOptions + '</select>' +
+    '<select class="count-row-shelf" id="' + codeSelectId + '">' + codeOptions + '</select>';
+}
+
+// وقتی «نام قفسه» عوض شود، گزینه‌های «کد قفسه»‌ی متناظر (از همان گروه‌بندیِ activeShelves) پر می‌شود
+function onShelfNameCascadeChange_(nameSel) {
+  var codeSelId = nameSel.getAttribute('data-code-target');
+  var codeSel = document.getElementById(codeSelId);
+  if (!codeSel) return;
+  var g = shelfCascadeGroups_[nameSel.id];
+  var name = nameSel.value;
+  if (!g || !name || !g.groups[name]) {
+    codeSel.innerHTML = '<option value="">— ابتدا نام قفسه را انتخاب کنید —</option>';
+    return;
+  }
+  codeSel.innerHTML = '<option value="">— انتخاب کد —</option>' + g.groups[name].map(function (s) {
+    return '<option value="' + escapeHtml(s.code) + '">' + escapeHtml(s.code) + '</option>';
+  }).join('');
+}
 // <<< پایان بخش افزوده‌شده
 
 function renderItemDetail(item) {
@@ -1059,7 +1154,7 @@ function renderItemDetail(item) {
       '</div>' +
     '</div>';
 
-  // ---------- وزن (همیشه نمایش داده می‌شود؛ ویرایش فقط برای کاربران دارای دسترسی انبار) ----------
+  // ---------- وزن (بازطراحی شد: مداد فقط وزن را ویرایش‌پذیر می‌کند — بدون قفسه) ----------
   var weightCard;
   if (!hasWarehouseAccess) {
     weightCard =
@@ -1068,16 +1163,32 @@ function renderItemDetail(item) {
         '<div class="detail-card-body"><div class="empty-hint">مشاهده و ویرایش وزن نیازمند دسترسی انبار است.</div></div>' +
       '</div>';
   } else {
-    var activeShelves = item.activeShelves || [];
-    var shelfOptionsHtml = '<option value="">— بدون قفسه —</option>' +
-      activeShelves.map(function (s) {
-        var label = s.code + (s.location ? ' — ' + s.location : '');
-        return '<option value="' + escapeHtml(s.code) + '"' + (item.shelfCode === s.code ? ' selected' : '') + '>' + escapeHtml(label) + '</option>';
-      }).join('');
-    if (item.shelfCode && activeShelves.every(function (s) { return s.code !== item.shelfCode; })) {
-      shelfOptionsHtml += '<option value="' + escapeHtml(item.shelfCode) + '" selected>' + escapeHtml(item.shelfCode) + ' (غیرفعال/نامعتبر)</option>';
-    }
+    weightCard =
+      '<div class="detail-card">' +
+        '<div class="detail-card-header"><span class="t">وزن</span><span class="ic">' + ICON_WEIGHT_ + '</span></div>' +
+        '<div class="detail-card-body">' +
+          '<div class="weight-row">' +
+            '<div class="weight-cell"><div class="k">واحد</div><div class="v">kg</div></div>' +
+            '<div class="weight-cell"><div class="k">وزن فعلی</div><div class="v" id="unitWeightView">' + escapeHtml(item.unitWeightDisplay) + '</div></div>' +
+            '<button class="weight-edit-btn" id="toggleWeightBtn" onclick="toggleWeightEdit()" title="ویرایش وزن">' +
+              '<span class="weight-edit-label">ویرایش</span>' + ICON_EDIT_ +
+            '</button>' +
+          '</div>' +
+          '<div class="weight-meta-line">وزن کل موجودی: <b id="totalWeightView">' + escapeHtml(item.totalWeightDisplay) + '</b></div>' +
+          '<div class="weight-edit" id="weightEditBox" style="display:none;margin-top:14px;">' +
+            '<label class="count-label">وزن واحد (kg)</label>' +
+            '<input type="number" class="qty-input" id="unitWeightInput" step="0.001" min="0" inputmode="decimal" value="' + (item.unitWeight === '' ? '' : escapeHtml(String(item.unitWeight))) + '" placeholder="مثلاً 2.5">' +
+            '<div class="diff-preview" id="weightMsg"></div>' +
+            '<div class="diff-preview" style="color:var(--muted);font-weight:500;">با دکمه‌ی «ثبت» پایین صفحه (در بخش «ثبت شمارش انبارگردانی») ذخیره می‌شود.</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+  }
 
+  // ---------- تخصیص قفسه (بخش جدا و همیشه‌نمایان — با انتخاب دومرحله‌ایِ نام‌قفسه→کد‌قفسه) ----------
+  var shelfAssignCard = '';
+  if (hasWarehouseAccess) {
+    var activeShelves = item.activeShelves || [];
     var unassignedShelves = activeShelves.filter(function (s) {
       return shelves.every(function (existing) { return existing.shelfCode !== s.code; });
     });
@@ -1093,42 +1204,24 @@ function renderItemDetail(item) {
         }).join('')
       : '<div class="empty-hint" style="margin-bottom:8px;">هنوز قفسه‌ای برای این کالا تخصیص داده نشده.</div>';
     var addShelfHtml = unassignedShelves.length > 0
-      ? '<div class="shelf-add-row" style="display:flex;align-items:center;gap:6px;margin-top:6px;">' +
-          '<select class="wh-select" id="newShelfSelect" style="flex:1;margin-bottom:0;">' +
-            unassignedShelves.map(function (s) {
-              var label = s.code + (s.location ? ' — ' + s.location : '');
-              return '<option value="' + escapeHtml(s.code) + '">' + escapeHtml(label) + '</option>';
-            }).join('') +
-          '</select>' +
-          '<input type="number" class="qty-input" id="newShelfQty" min="0" inputmode="decimal" style="width:90px;" placeholder="موجودی">' +
-          '<button class="btn btn-primary" style="padding:8px 10px;" onclick="addShelfAssignment()">افزودن قفسه</button>' +
+      ? '<div class="shelf-add-row" style="margin-top:6px;">' +
+          buildShelfCascadeHtml_('newShelfSelect', unassignedShelves, '', '— انتخاب کد —') +
+          '<input type="number" class="qty-input" id="newShelfQty" min="0" inputmode="decimal" placeholder="موجودی" style="margin-top:8px;">' +
+          '<button class="btn btn-primary" style="margin-top:8px;width:100%;" onclick="addShelfAssignment()">افزودن قفسه</button>' +
         '</div>'
       : '';
 
-    weightCard =
+    shelfAssignCard =
       '<div class="detail-card">' +
-        '<div class="detail-card-header"><span class="t">وزن</span><span class="ic">' + ICON_WEIGHT_ + '</span></div>' +
+        '<div class="detail-card-header"><span class="t">تخصیص قفسه</span><span class="ic">' + ICON_SHELF_ + '</span></div>' +
         '<div class="detail-card-body">' +
-          '<div class="weight-row">' +
-            '<div class="weight-cell"><div class="k">واحد</div><div class="v">kg</div></div>' +
-            '<div class="weight-cell"><div class="k">وزن فعلی</div><div class="v" id="unitWeightView">' + escapeHtml(item.unitWeightDisplay) + '</div></div>' +
-            '<button class="weight-edit-btn" id="toggleWeightShelfBtn" onclick="toggleWeightShelfEdit()" title="ویرایش وزن و قفسه">' +
-              '<span class="weight-edit-label">ویرایش</span>' + ICON_EDIT_ +
-            '</button>' +
-          '</div>' +
-          '<div class="weight-meta-line">وزن کل موجودی: <b id="totalWeightView">' + escapeHtml(item.totalWeightDisplay) + '</b> · قفسه: <b id="shelfView">' + escapeHtml(item.shelfDisplay) + '</b></div>' +
-          '<div class="weight-shelf-edit" id="weightShelfEditBox" style="display:none;margin-top:14px;">' +
-            '<label class="count-label">وزن واحد (kg)</label>' +
-            '<input type="number" class="qty-input" id="unitWeightInput" step="0.001" min="0" inputmode="decimal" value="' + (item.unitWeight === '' ? '' : escapeHtml(String(item.unitWeight))) + '" placeholder="مثلاً 2.5" style="margin-bottom:10px;">' +
-            '<label class="count-label">قفسه (اصلی)</label>' +
-            '<select class="wh-select" id="shelfSelect">' + shelfOptionsHtml + '</select>' +
-            '<div class="diff-preview" id="weightShelfMsg"></div>' +
-            '<div class="section-title" style="margin-top:12px;">قفسه‌های این کالا (چند قفسه‌ای)</div>' +
-            '<div id="shelfAssignmentsBox">' + shelfRowsHtml + '</div>' +
-            addShelfHtml +
-            '<div class="diff-preview" id="shelfAssignMsg"></div>' +
-            '<div class="diff-preview" style="color:var(--muted);font-weight:500;">تغییرات این بخش با دکمه‌ی «ثبت» پایین صفحه (در بخش «ثبت شمارش انبارگردانی») ذخیره می‌شود.</div>' +
-          '</div>' +
+          '<div class="weight-meta-line" style="margin-top:0;margin-bottom:10px;">قفسه‌ی اصلی فعلی: <b id="shelfView">' + escapeHtml(item.shelfDisplay) + '</b></div>' +
+          buildShelfCascadeHtml_('shelfSelect', activeShelves, item.shelfCode, '— بدون قفسه —') +
+          '<div class="diff-preview" id="weightShelfMsg"></div>' +
+          '<div class="section-title" style="margin-top:12px;">قفسه‌های این کالا (چند قفسه‌ای)</div>' +
+          '<div id="shelfAssignmentsBox">' + shelfRowsHtml + '</div>' +
+          addShelfHtml +
+          '<div class="diff-preview" id="shelfAssignMsg"></div>' +
         '</div>' +
       '</div>';
   }
@@ -1150,7 +1243,7 @@ function renderItemDetail(item) {
       '</div>' +
     '</div>';
 
-  area.innerHTML = mainCard + warehousesCard + shelvesCard + capacityCard + weightCard + countCard;
+  area.innerHTML = mainCard + warehousesCard + shelvesCard + capacityCard + weightCard + shelfAssignCard + countCard;
 
   if (hasWarehouseAccess && shelves.length > 0) {
     loadShelfCapacitySection(item.code, shelves.map(function (s) { return s.shelfCode; }));
@@ -1174,7 +1267,8 @@ function buildInitialCountRows_(item) {
 
 // activeShelves: فهرست کاملِ قفسه‌های فعال (از همان شیت «قفسه‌ها»، همراه پاسخ apiLookup) —
 // نه فقط قفسه‌های از قبل تخصیص‌یافته به این کالا. این یعنی حتی کالای بدون قفسه هم می‌تواند
-// نام/کد قفسه را از این فهرست انتخاب کند (بدون هیچ درخواست یا منبع داده‌ی جدید).
+// نام/کد قفسه را از این فهرست انتخاب کند (بدون هیچ درخواست یا منبع داده‌ی جدید). انتخاب قفسه
+// دو مرحله‌ای است: اول «نام قفسه»، سپس فقط کدهای همان نام در «کد قفسه» نمایش داده می‌شود.
 function buildCountRowHtml_(row, warehouses, activeShelves) {
   var whHtml = '';
   if (warehouses.length) {
@@ -1182,34 +1276,18 @@ function buildCountRowHtml_(row, warehouses, activeShelves) {
       return '<option value="' + escapeHtml(w.warehouse) + '"' + (w.warehouse === row.warehouse ? ' selected' : '') + '>' + escapeHtml(w.warehouse) + '</option>';
     }).join('') + '</select>';
   }
-  var shelfHtml = '';
-  var codeCellHtml = '';
+  var shelfCascadeHtml = '';
   if (activeShelves.length) {
-    // اگر قفسه‌ی این ردیف (مثلاً از تخصیص قبلی کالا) در فهرست فعال نباشد، همچنان به‌عنوان یک
-    // گزینه‌ی معتبر اضافه شود تا از دست نرود
-    var options = activeShelves.slice();
-    if (row.shelfCode && options.every(function (s) { return s.code !== row.shelfCode; })) {
-      options = options.concat([{ code: row.shelfCode, location: '' }]);
-    }
-    shelfHtml = '<select class="count-row-shelf" onchange="onCountRowShelfChange(this)"><option value="">— انتخاب نام قفسه —</option>' +
-      options.map(function (s) {
-        var label = s.location ? (s.location + ' (' + s.code + ')') : s.code;
-        return '<option value="' + escapeHtml(s.code) + '"' + (s.code === row.shelfCode ? ' selected' : '') + '>' + escapeHtml(label) + '</option>';
-      }).join('') + '</select>';
-    codeCellHtml = '<div class="count-row-code">' + escapeHtml(row.shelfCode || '—') + '</div>';
+    var codeSelectId = 'shelfCode_' + row.id;
+    shelfCascadeHtml = buildCountRowShelfCascadeHtml_(codeSelectId, activeShelves, row.shelfCode);
   }
-  return '<div class="count-row" data-row-id="' + escapeHtml(row.id) + '">' + whHtml + shelfHtml + codeCellHtml +
-    '<input type="number" class="count-row-qty" inputmode="decimal" placeholder="0" value="' + (row.qty === '' || row.qty == null ? '' : escapeHtml(String(row.qty))) + '">' +
-    '<button type="button" class="count-row-del" onclick="removeCountRow(this)" title="حذف ردیف">' + ICON_TRASH_ + '</button>' +
+  return '<div class="count-row" data-row-id="' + escapeHtml(row.id) + '">' +
+    '<div class="count-row-line1">' + whHtml + shelfCascadeHtml + '</div>' +
+    '<div class="count-row-line2">' +
+      '<input type="number" class="count-row-qty" inputmode="decimal" placeholder="0" value="' + (row.qty === '' || row.qty == null ? '' : escapeHtml(String(row.qty))) + '">' +
+      '<button type="button" class="count-row-del" onclick="removeCountRow(this)" title="حذف ردیف">' + ICON_TRASH_ + '</button>' +
+    '</div>' +
   '</div>';
-}
-
-// وقتی کاربر نام قفسه‌ی یک ردیف را عوض می‌کند، کد قفسه‌ی همان ردیف هم به‌طور خودکار به‌روز شود
-function onCountRowShelfChange(selectEl) {
-  var row = selectEl.closest('.count-row');
-  if (!row) return;
-  var codeCell = row.querySelector('.count-row-code');
-  if (codeCell) codeCell.textContent = selectEl.value || '—';
 }
 
 var countRowSeq_ = 0;
@@ -1378,17 +1456,19 @@ function saveCountStep_(itemForRecent, qty, note, warehouse, shelfCode) {
 // <<< پایان بخش افزوده‌شده
 
 // ===================== ویرایش وزن / قفسه (فقط کاربران دارای دسترسی انبار می‌بینند) =====================
-function toggleWeightShelfEdit() {
-  var box = document.getElementById('weightShelfEditBox');
+// >>> بازطراحی شد: مداد فقط جعبه‌ی ویرایش وزن (weightEditBox) را باز/بسته می‌کند — دیگر قفسه
+// در این پنل نیست؛ ویرایش قفسه در کارت جدا و همیشه‌نمایانِ «تخصیص قفسه» انجام می‌شود.
+function toggleWeightEdit() {
+  var box = document.getElementById('weightEditBox');
   if (!box) return;
   var open = box.style.display !== 'none';
   box.style.display = open ? 'none' : 'block';
-  var btn = document.getElementById('toggleWeightShelfBtn');
+  var btn = document.getElementById('toggleWeightBtn');
   if (btn) {
     btn.classList.toggle('open', !open);
     var label = btn.querySelector('.weight-edit-label');
     if (label) label.textContent = open ? 'ویرایش' : 'بستن';
-    btn.title = open ? 'ویرایش وزن و قفسه' : 'انصراف از ویرایش';
+    btn.title = open ? 'ویرایش وزن' : 'انصراف از ویرایش';
   }
 }
 
@@ -1581,17 +1661,26 @@ function submitAll() {
 
   var weightEl = document.getElementById('unitWeightInput');
   var shelfEl = document.getElementById('shelfSelect');
-  var weightShelfBox = document.getElementById('weightShelfEditBox');
   var wsMsg = document.getElementById('weightShelfMsg');
-  var hasWeightShelfEdit = !!(weightShelfBox && weightShelfBox.style.display !== 'none' && weightEl && shelfEl);
+  var weightMsgEl = document.getElementById('weightMsg');
   var unitWeight = weightEl ? weightEl.value : '';
   var shelfCode = shelfEl ? shelfEl.value : '';
 
-  if (hasWeightShelfEdit && unitWeight !== '' && (isNaN(Number(unitWeight)) || Number(unitWeight) < 0)) {
-    if (wsMsg) { wsMsg.textContent = 'وزن واحد باید عددی نامنفی باشد.'; wsMsg.className = 'diff-preview bad'; }
+  // >>> بازطراحی شد: مداد فقط جعبه‌ی وزن را باز/بسته می‌کند و قفسه‌ی اصلی همیشه در کارت جدا و
+  // همیشه‌نمایانِ «تخصیص قفسه» قابل‌ویرایش است؛ پس به‌جای «آیا جعبه باز است»، اینجا با مقایسه
+  // با مقدار اصلیِ کالا تشخیص داده می‌شود که آیا واقعاً چیزی تغییر کرده تا لازم باشد ذخیره شود.
+  var origUnitWeight = (currentDetail.unitWeight === '' || currentDetail.unitWeight == null) ? '' : String(currentDetail.unitWeight);
+  var origShelfCode = currentDetail.shelfCode || '';
+  var weightChanged = !!weightEl && String(unitWeight) !== origUnitWeight;
+  var shelfChanged = !!shelfEl && String(shelfCode) !== origShelfCode;
+  var hasWeightShelfEdit = weightChanged || shelfChanged;
+
+  if (weightChanged && unitWeight !== '' && (isNaN(Number(unitWeight)) || Number(unitWeight) < 0)) {
+    if (weightMsgEl) { weightMsgEl.textContent = 'وزن واحد باید عددی نامنفی باشد.'; weightMsgEl.className = 'diff-preview bad'; }
     showToast('وزن واحد نامعتبر است', true);
     return;
   }
+  // <<< پایان بخش بازطراحی‌شده
 
   var rowsEls = document.querySelectorAll('#countRowsBox .count-row');
   if (!rowsEls.length) { showToast('حداقل یک ردیف شمارش لازم است', true); return; }
@@ -1726,32 +1815,90 @@ function shelfUsageBarHtmlClient_(usagePercent, color) {
   '</div>';
 }
 
+// >>> بازطراحی شد: «لیست قفسه‌ها» حالا یک جدول حرفه‌ای (مثل جدول قابل‌فیلترِ خودِ Apps Script)
+// با فیلتر لحظه‌ای روی هر ستون است، به‌جای فهرست کارت‌ها. داده دقیقاً همان پاسخ
+// apiListShelvesWithLoad قبلی است (بدون هیچ فراخوانی/فیلد جدید)؛ فیلتر کردن هم کاملاً سمت
+// کلاینت و روی همان آرایه‌ی موجود در حافظه انجام می‌شود، بدون رفرش صفحه یا درخواست جدید.
+var shelvesListData_ = [];
+
 function renderShelvesList(shelves) {
+  shelvesListData_ = shelves || [];
   var area = document.getElementById('shelvesArea');
-  if (!shelves.length) {
+  if (!shelvesListData_.length) {
     area.innerHTML = '<div class="empty-hint">قفسه‌ای یافت نشد.</div>';
     return;
   }
-  var html = '<div class="section-title">قفسه‌ها (' + shelves.length + ')</div><div class="result-list">';
-  shelves.forEach(function (s) {
-    var color = shelfLoadStatusColorClient_(s.loadStatus);
-    html +=
-      '<div class="result-row" style="border-inline-start:3px solid ' + color + ';" onclick="openShelfDetail(\'' + escapeHtml(s.code).replace(/'/g, "\\\\'") + '\')">' +
-        '<div class="result-thumb">🗄️</div>' +
-        '<div class="result-info">' +
-          '<div class="result-name">' + escapeHtml(s.code) + (s.location ? ' — ' + escapeHtml(s.location) : '') + '</div>' +
-          '<div class="result-meta">' +
-            '<span style="color:' + color + ';font-weight:700;">' + escapeHtml(s.loadStatus) + '</span>' +
-            '<span>بار: ' + escapeHtml(String(s.currentLoad)) + ' kg' + (s.capacityKg !== null ? (' از ' + escapeHtml(String(s.capacityKg)) + ' kg') : '') + '</span>' +
-            '<span>' + s.itemCount + ' کالا</span>' +
-          '</div>' +
-          '<div style="margin-top:6px;">' + shelfUsageBarHtmlClient_(s.usagePercent, color) + '</div>' +
-        '</div>' +
-      '</div>';
-  });
-  html += '</div>';
+
+  var statusSet = {};
+  shelvesListData_.forEach(function (s) { if (s.loadStatus) statusSet[s.loadStatus] = true; });
+  var statusOptions = '<option value="">همه</option>' + Object.keys(statusSet).map(function (st) {
+    return '<option value="' + escapeHtml(st) + '">' + escapeHtml(st) + '</option>';
+  }).join('');
+
+  var html =
+    '<div class="section-title">قفسه‌ها (<span id="shelvesCountLabel">' + shelvesListData_.length + '</span>)</div>' +
+    '<div class="table-wrap"><table class="data-table" id="shelvesListTable"><thead><tr>' +
+      '<th class="shelf-th">وضعیت<br><select class="shelf-filter-select" id="flt_status" onchange="applyShelvesFilter_()">' + statusOptions + '</select></th>' +
+      '<th class="shelf-th">درصد پر بودن<br><input class="shelf-filter-input" id="flt_usagePercent" oninput="applyShelvesFilter_()" placeholder="مثلاً 80"></th>' +
+      '<th class="shelf-th">ظرفیت باقی‌مانده<br><input class="shelf-filter-input" id="flt_remainingCapacity" oninput="applyShelvesFilter_()" placeholder="kg"></th>' +
+      '<th class="shelf-th">بار موجود<br><input class="shelf-filter-input" id="flt_currentLoad" oninput="applyShelvesFilter_()" placeholder="kg"></th>' +
+      '<th class="shelf-th">حداکثر ظرفیت<br><input class="shelf-filter-input" id="flt_capacityKg" oninput="applyShelvesFilter_()" placeholder="kg"></th>' +
+      '<th class="shelf-th">کد قفسه<br><input class="shelf-filter-input" id="flt_code" oninput="applyShelvesFilter_()" placeholder="جست‌وجو..."></th>' +
+      '<th class="shelf-th">نام قفسه<br><input class="shelf-filter-input" id="flt_location" oninput="applyShelvesFilter_()" placeholder="جست‌وجو..."></th>' +
+    '</tr></thead><tbody id="shelvesListBody">' + buildShelvesRowsHtml_(shelvesListData_) + '</tbody></table></div>';
   area.innerHTML = html;
 }
+
+function buildShelvesRowsHtml_(list) {
+  if (!list.length) return '<tr><td colspan="7"><div class="empty-hint">قفسه‌ای با این فیلتر یافت نشد.</div></td></tr>';
+  return list.map(function (s) {
+    var color = shelfLoadStatusColorClient_(s.loadStatus);
+    var safeCode = escapeHtml(s.code).replace(/'/g, "\\'");
+    return '<tr class="clickable" onclick="openShelfDetail(\'' + safeCode + '\')">' +
+      '<td><span class="status-chip" style="background:' + color + '1e;color:' + color + ';"><span class="dot"></span>' + escapeHtml(s.loadStatus || '—') + '</span></td>' +
+      '<td>' + (s.usagePercent === null || s.usagePercent === undefined
+        ? '<span style="color:#8b94a0;">—</span>'
+        : '<div class="cap-bar-cell"><div class="cap-bar-track"><div class="cap-bar-fill" style="width:' + Math.max(0, Math.min(100, s.usagePercent)) + '%;background:' + color + ';"></div></div><span style="color:' + color + ';font-weight:800;">' + escapeHtml(String(s.usagePercent)) + '%</span></div>') +
+      '</td>' +
+      '<td>' + (s.remainingCapacity === null || s.remainingCapacity === undefined ? '—' : escapeHtml(String(s.remainingCapacity)) + ' kg') + '</td>' +
+      '<td>' + (s.currentLoad === null || s.currentLoad === undefined ? '—' : escapeHtml(String(s.currentLoad)) + ' kg') + '</td>' +
+      '<td>' + (s.capacityKg === null || s.capacityKg === undefined ? '—' : escapeHtml(String(s.capacityKg)) + ' kg') + '</td>' +
+      '<td class="code-cell">' + escapeHtml(s.code) + '</td>' +
+      '<td>' + escapeHtml(s.location || '—') + '</td>' +
+    '</tr>';
+  }).join('');
+}
+
+// فیلتر لحظه‌ای — روی همان آرایه‌ی موجود در حافظه (shelvesListData_) اجرا می‌شود؛ بدون
+// درخواست جدید به سرور و بدون رفرش صفحه، فقط tbody دوباره ساخته می‌شود.
+function applyShelvesFilter_() {
+  var getVal = function (id) { var el = document.getElementById(id); return el ? el.value.trim().toLowerCase() : ''; };
+  var fLocation = getVal('flt_location');
+  var fCode = getVal('flt_code');
+  var fCapacity = getVal('flt_capacityKg');
+  var fCurrent = getVal('flt_currentLoad');
+  var fRemaining = getVal('flt_remainingCapacity');
+  var fUsage = getVal('flt_usagePercent');
+  var fStatusEl = document.getElementById('flt_status');
+  var fStatus = fStatusEl ? fStatusEl.value : '';
+
+  var filtered = shelvesListData_.filter(function (s) {
+    if (fLocation && String(s.location || '').toLowerCase().indexOf(fLocation) === -1) return false;
+    if (fCode && String(s.code || '').toLowerCase().indexOf(fCode) === -1) return false;
+    if (fCapacity && String(s.capacityKg == null ? '' : s.capacityKg).toLowerCase().indexOf(fCapacity) === -1) return false;
+    if (fCurrent && String(s.currentLoad == null ? '' : s.currentLoad).toLowerCase().indexOf(fCurrent) === -1) return false;
+    if (fRemaining && String(s.remainingCapacity == null ? '' : s.remainingCapacity).toLowerCase().indexOf(fRemaining) === -1) return false;
+    if (fUsage && String(s.usagePercent == null ? '' : s.usagePercent).toLowerCase().indexOf(fUsage) === -1) return false;
+    if (fStatus && s.loadStatus !== fStatus) return false;
+    return true;
+  });
+
+  var body = document.getElementById('shelvesListBody');
+  if (body) body.innerHTML = buildShelvesRowsHtml_(filtered);
+  var countLabel = document.getElementById('shelvesCountLabel');
+  if (countLabel) countLabel.textContent = filtered.length + (filtered.length !== shelvesListData_.length ? ' از ' + shelvesListData_.length : '');
+}
+// <<< پایان بخش بازطراحی‌شده
 
 function openShelfDetail(code) {
   shelvesViewState = 'detail';
