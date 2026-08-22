@@ -213,24 +213,28 @@ function renderSyncBar() {
   var bar = document.getElementById('syncBar');
   if (!bar) return;
   var online = isOnline();
-  var dotColor = online ? '#1a7f37' : '#c53030';
+  var dotColor = online ? '#5fd18a' : '#ff9b9b'; // >>> اصلاح شد: رنگ‌های روشن‌تر برای خوانایی روی پس‌زمینه‌ی آبی‌تیره‌ی هدر
   var lastSync = localStorage.getItem(LS_LAST_SYNC) || '—';
   // >>> افزوده شد: اگر آخرین تلاش برای دانلود کامل داده ناموفق بود، وضعیت واقعی نمایش داده شود
   // (قبلاً این خطا کاملاً بی‌صدا بود و نوار همگام‌سازی همیشه طوری نشان می‌داد که انگار همه‌چیز خوب است)
   var lastSyncOk = localStorage.getItem(LS_LAST_SYNC_OK);
-  var syncWarning = (lastSyncOk === '0' && online) ? '<span style="color:#c53030;font-weight:700;">⚠ دریافت آخرین داده ناموفق بود</span>' : '';
+  var syncWarning = (lastSyncOk === '0' && online) ? '<div style="color:#ffd0d0;font-weight:700;font-size:10px;margin-top:2px;">⚠ دریافت آخرین داده ناموفق بود</div>' : '';
   // <<< پایان بخش افزوده‌شده
+  // >>> اصلاح شد: طراحی فشرده و هم‌راستا با نوار آبی بالای صفحه (مرجع طراحی) — یک دکمه‌ی آیکونیِ
+  // «همگام‌سازی» با نقطه‌ی وضعیت آنلاین/آفلاین روی آن، و زیرش تاریخ/ساعت آخرین همگام‌سازی به‌صورت
+  // متن کوچک. منطق/تریگرها (syncNow، pendingCount، lastSyncOk) کاملاً همان قبلی‌اند.
   bar.innerHTML =
-    '<div style="display:flex;align-items:center;gap:8px;padding:7px 12px;background:#f4f6f8;border-bottom:1px solid #e4e7ea;font-size:11.5px;flex-wrap:wrap;">' +
-      '<span style="width:9px;height:9px;border-radius:50%;background:' + dotColor + ';display:inline-block;flex:none;"></span>' +
-      '<span style="font-weight:700;color:' + dotColor + ';">' + (online ? 'آنلاین' : 'آفلاین') + '</span>' +
-      (syncState.pendingCount ? '<span style="color:#a15c00;font-weight:700;">' + syncState.pendingCount + ' در صف ارسال</span>' : '') +
-      '<span style="color:#5a6472;">آخرین همگام‌سازی: ' + escapeHtml(lastSync) + '</span>' +
-      syncWarning +
-      '<button type="button" id="syncNowBtn" onclick="syncNow(true)" style="margin-inline-start:auto;border:1px solid #0f4c81;color:#0f4c81;background:#fff;border-radius:8px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;"' + (syncState.syncing ? ' disabled' : '') + '>' +
-        (syncState.syncing ? 'در حال همگام‌سازی...' : 'همگام‌سازی اکنون') +
-      '</button>' +
-    '</div>';
+    '<button type="button" id="syncNowBtn" onclick="syncNow(true)" title="همگام‌سازی" style="display:flex;align-items:center;gap:8px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.25);border-radius:10px;padding:6px 10px;cursor:pointer;color:#fff;font-family:inherit;"' + (syncState.syncing ? ' disabled' : '') + '>' +
+      '<span style="position:relative;font-size:16px;line-height:1;">🔄' +
+        '<span style="position:absolute;top:-2px;left:-2px;width:8px;height:8px;border-radius:50%;background:' + dotColor + ';border:1.5px solid #0f4c81;"></span>' +
+      '</span>' +
+      '<span style="text-align:start;">' +
+        '<div style="font-size:12px;font-weight:800;">' + (syncState.syncing ? 'در حال همگام‌سازی...' : 'همگام‌سازی') + (syncState.pendingCount ? ' (' + syncState.pendingCount + ')' : '') + '</div>' +
+        '<div style="font-size:10px;color:#cfe0f0;">آخرین: ' + escapeHtml(lastSync) + '</div>' +
+      '</span>' +
+    '</button>' +
+    syncWarning;
+  // <<< پایان بخش اصلاح‌شده
 }
 
 function refreshPendingCount() {
@@ -541,14 +545,40 @@ function doLogout() {
   localStorage.removeItem(LS_FULLNAME);
   localStorage.removeItem(LS_WAREHOUSE);
   state.token = ''; state.username = ''; state.role = ''; state.fullName = ''; state.warehouseAccess = false;
+  // >>> افزوده شد: پنهان‌کردن نوار پایین ناوبری بعد از خروج (فقط برای کاربر واردشده نمایش داده می‌شود)
+  var bottomNav = document.getElementById('bottomNav');
+  if (bottomNav) bottomNav.style.display = 'none';
+  // <<< پایان بخش افزوده‌شده
   showScreen('loginScreen');
 }
+
+// >>> افزوده شد: دو تابعِ نوار پایین ناوبری — «خانه» و «جستجو». هیچ منطق/APIای اضافه نشده؛ فقط
+// همان توابع موجود (showScreen، renderRecentList، فوکوس روی جعبه‌ی جست‌وجو) دوباره استفاده شده‌اند.
+function navGoHome_() {
+  currentDetail = null;
+  lastSearchResults = null;
+  var input = document.getElementById('searchInput');
+  if (input) input.value = '';
+  showScreen('mainScreen');
+  renderRecentList();
+}
+function navGoSearch_() {
+  showScreen('mainScreen');
+  var input = document.getElementById('searchInput');
+  if (input) input.focus();
+}
+// <<< پایان بخش افزوده‌شده
 
 function enterApp() {
   setText('whoLabel', state.fullName || state.username);
   setText('whoSub', state.role || '');
-  var shelvesBtn = document.getElementById('shelvesNavBtn');
-  if (shelvesBtn) shelvesBtn.style.display = state.warehouseAccess ? '' : 'none';
+  // >>> اصلاح شد: shelvesNavBtn (دکمه‌ی قدیمیِ نوار بالا) با bottomNavShelves (نوار پایین ناوبری)
+  // جایگزین شده است؛ منطق نمایش/پنهانی (فقط برای کاربران دارای دسترسی انبار) همان قبلی است.
+  var bottomNav = document.getElementById('bottomNav');
+  if (bottomNav) bottomNav.style.display = 'flex';
+  var shelvesNavItem = document.getElementById('bottomNavShelves');
+  if (shelvesNavItem) shelvesNavItem.style.display = state.warehouseAccess ? '' : 'none';
+  // <<< پایان بخش اصلاح‌شده
   showScreen('mainScreen');
 
   // >>> افزوده شد: نمایش نوار همگام‌سازی + تلاش خودکار برای ارسال هر عملیات باقیمانده از جلسه‌ی قبل
@@ -906,17 +936,28 @@ function renderItemDetail(item) {
   // موجودی به‌تفکیک انبار
   // >>> اصلاح شد: قبلاً فقط وقتی کالا در بیش از یک انبار بود نمایش داده می‌شد (warehouses.length > 1)؛
   // یعنی برای کالاهای تک‌انباره این بخش اصلاً رندر نمی‌شد. حالا با هر تعداد انبار (حتی یکی) نمایش
-  // داده می‌شود، چون داده‌ی «کد/نام انبار + موجودی» برای کاربر همیشه مفید است، نه فقط در حالت چندانباره.
+  // داده می‌شود، به‌صورت جدول (هم‌راستا با مرجع طراحی: نام انبار | موجودی | واحد).
+  // توجه: سرور فقط یک فیلد «warehouse» (نام/برچسب انبار) برمی‌گرداند، نه کد جدا؛ اگر در آینده
+  // Code.gs کد انبار را هم جدا برگرداند (مثلاً w.code)، این جدول آن را هم به‌صورت ستون اول نشان می‌دهد.
   var warehousesHtml = '';
   var warehouses = item.warehouses || [];
   if (warehouses.length > 0) {
-    warehousesHtml = '<div class="section-title">موجودی به تفکیک انبار</div><div class="wh-grid">' +
-      warehouses.map(function (w) {
-        return '<div class="wh-item" style="display:flex;align-items:center;justify-content:space-between;padding:11px 13px;background:#f7f8fa;border-radius:10px;margin-bottom:7px;">' +
-          '<div class="k" style="font-size:13.5px;font-weight:700;color:#3f4750;">🏬 ' + escapeHtml(w.warehouse) + '</div>' +
-          '<div class="v" style="font-size:14.5px;font-weight:800;color:#0f4c81;">' + escapeHtml(String(w.qty)) + '</div>' +
-        '</div>';
-      }).join('') + '</div>';
+    warehousesHtml = '<div class="section-title">🏬 موجودی به تفکیک انبار</div>' +
+      '<div style="overflow-x:auto;border:1px solid #eceef1;border-radius:10px;">' +
+      '<table class="mini-data-table" style="width:100%;border-collapse:collapse;font-size:13.5px;">' +
+        '<thead><tr style="background:#f7f8fa;">' +
+          (warehouses.some(function (w) { return w.code; }) ? '<th style="padding:9px 12px;text-align:start;font-weight:800;color:#5a6472;">کد انبار</th>' : '') +
+          '<th style="padding:9px 12px;text-align:start;font-weight:800;color:#5a6472;">نام انبار</th>' +
+          '<th style="padding:9px 12px;text-align:start;font-weight:800;color:#5a6472;">موجودی</th>' +
+        '</tr></thead><tbody>' +
+        warehouses.map(function (w) {
+          return '<tr style="border-top:1px solid #eceef1;">' +
+            (warehouses.some(function (x) { return x.code; }) ? '<td style="padding:9px 12px;color:#3f4750;">' + (w.code ? escapeHtml(w.code) : '—') + '</td>' : '') +
+            '<td style="padding:9px 12px;font-weight:700;color:#3f4750;">' + escapeHtml(w.warehouse) + '</td>' +
+            '<td style="padding:9px 12px;font-weight:800;color:#0f4c81;">' + escapeHtml(String(w.qty)) + '</td>' +
+          '</tr>';
+        }).join('') +
+      '</tbody></table></div>';
   }
   // <<< پایان بخش اصلاح‌شده
 
@@ -951,30 +992,27 @@ function renderItemDetail(item) {
   var shelves = item.shelves || [];
   var shelvesHtml = '';
   if (shelves.length > 0) {
-    // >>> اصلاح شد: هر قفسه اکنون یک ردیف کامل است (کد قفسه + موجودی + نوار ظرفیت اگر داده‌اش
-    // موجود باشد)، نه فقط یک خط متن. اگر سرور فیلدهای ظرفیت را برای این قفسه هم برگردانده باشد
-    // (همان شکل capacityKg/currentLoad/usagePercent/loadStatus که در «ظرفیت قفسه» استفاده می‌شود)،
-    // نوار درصد بار هم نمایش داده می‌شود؛ در غیر این صورت فقط کد+موجودی نشان داده می‌شود (بدون خطا).
-    shelvesHtml = '<div class="section-title">موجودی به تفکیک قفسه</div><div class="shelves-list">' +
-      shelves.map(function (s) {
-        var hasLoad = s.usagePercent !== undefined && s.usagePercent !== null;
-        var loadColor = hasLoad ? shelfLoadStatusColorClient_(s.loadStatus) : null;
-        var barHtml = hasLoad ? '<div style="margin-top:6px;">' + shelfUsageBarHtmlClient_(s.usagePercent, loadColor) + '</div>' : '';
-        return '<div class="shelf-row-view" style="background:#fff;border:1px solid #eceef1;border-radius:10px;padding:11px 13px;margin-bottom:8px;">' +
-          '<div style="display:flex;align-items:center;justify-content:space-between;">' +
-            '<div class="shelf-row-code" style="font-size:13.5px;font-weight:800;color:#3f4750;">🗄️ قفسه ' + escapeHtml(s.shelfCode) + '</div>' +
-            '<div class="shelf-row-qty" style="font-size:14px;font-weight:800;color:#0f4c81;">' + escapeHtml(s.qty === '' || s.qty === null || s.qty === undefined ? '—' : String(s.qty)) + '</div>' +
-          '</div>' +
-          barHtml +
-        '</div>';
-      }).join('') +
-      // میان‌بر «افزودن قفسه»: همان فرمِ موجودِ addShelfAssignment() را در پایین صفحه باز/نمایان
-      // می‌کند (بدون تکرار منطق) — فقط برای کاربرانی که دسترسی انبار دارند (شرط زیر با همان
-      // نشانه‌ی موجود در بخش «وزن و قفسه» یکسان است)
-      (item.shelfDisplay !== undefined
-        ? '<button type="button" class="btn btn-secondary" style="width:100%;padding:11px;font-size:13.5px;font-weight:700;" onclick="scrollToAddShelf_()">+ افزودن قفسه</button>'
-        : '') +
-    '</div>';
+    // >>> اصلاح شد: جدول با ستون‌های دقیق «کد قفسه | نام قفسه | موجودی قفسه»، بدون دکمه‌ی
+    // «افزودن قفسه» در این بخش (طبق درخواست — افزودن قفسه فقط در فرم ویرایش پایین صفحه است).
+    // «نام قفسه» فقط اگر سرور آن را برای این کالا برگردانده باشد نشان داده می‌شود (s.location/s.name)؛
+    // در غیر این صورت با «—» نمایش داده می‌شود، بدون خطا یا داده‌ی جعلی.
+    var shelvesHaveName = shelves.some(function (s) { return s.location || s.name; });
+    shelvesHtml = '<div class="section-title">🗄️ موجودی به تفکیک قفسه</div>' +
+      '<div style="overflow-x:auto;border:1px solid #eceef1;border-radius:10px;">' +
+      '<table class="mini-data-table" style="width:100%;border-collapse:collapse;font-size:13.5px;">' +
+        '<thead><tr style="background:#f7f8fa;">' +
+          '<th style="padding:9px 12px;text-align:start;font-weight:800;color:#5a6472;">کد قفسه</th>' +
+          (shelvesHaveName ? '<th style="padding:9px 12px;text-align:start;font-weight:800;color:#5a6472;">نام قفسه</th>' : '') +
+          '<th style="padding:9px 12px;text-align:start;font-weight:800;color:#5a6472;">موجودی قفسه</th>' +
+        '</tr></thead><tbody>' +
+        shelves.map(function (s) {
+          return '<tr style="border-top:1px solid #eceef1;">' +
+            '<td style="padding:9px 12px;font-weight:700;color:#3f4750;">' + escapeHtml(s.shelfCode) + '</td>' +
+            (shelvesHaveName ? '<td style="padding:9px 12px;color:#3f4750;">' + escapeHtml(s.location || s.name || '—') + '</td>' : '') +
+            '<td style="padding:9px 12px;font-weight:800;color:#0f4c81;">' + escapeHtml(s.qty === '' || s.qty === null || s.qty === undefined ? '—' : String(s.qty)) + '</td>' +
+          '</tr>';
+        }).join('') +
+      '</tbody></table></div>';
     // <<< پایان بخش اصلاح‌شده
   }
   // <<< پایان بخش افزوده‌شده
@@ -1007,28 +1045,39 @@ function renderItemDetail(item) {
     if (item.shelfCode && activeShelves.every(function (s) { return s.code !== item.shelfCode; })) {
       shelfOptionsHtml += '<option value="' + escapeHtml(item.shelfCode) + '" selected>' + escapeHtml(item.shelfCode) + ' (غیرفعال/نامعتبر)</option>';
     }
-    // >>> افزوده شد: پنل فشرده‌ی ظرفیت قفسه — از همان محاسبات زنده‌ی سرور (item.shelfLoad) استفاده می‌شود
-    var shelfCapacityHtml = '';
-    if (item.shelfLoad) {
-      var slColor = shelfLoadStatusColorClient_(item.shelfLoad.loadStatus);
-      // >>> اصلاح شد: به‌جای بلوک متنیِ ساده، حالا یک ردیف کاملِ جدول‌مانند (کد قفسه، ظرفیت،
-      // بار، درصد+نوار پیشرفت، وضعیت با رنگ) نمایش داده می‌شود — هم‌سبک با صفحه‌ی «قفسه‌ها»
-      shelfCapacityHtml =
-        '<div class="section-title" style="margin-top:14px;">ظرفیت قفسه</div>' +
-        '<div style="background:#fff;border:1px solid #eceef1;border-radius:10px;padding:12px 14px;">' +
-          '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">' +
-            '<div style="font-size:13.5px;font-weight:800;color:#3f4750;">🗄️ قفسه ' + escapeHtml(item.shelfCode) + '</div>' +
-            '<div style="font-size:12px;font-weight:800;color:' + slColor + ';">' + escapeHtml(item.shelfLoad.loadStatus) + '</div>' +
-          '</div>' +
-          '<div class="item-fields" style="margin-bottom:8px;">' +
-            '<div class="item-field"><div class="k">حداکثر ظرفیت</div><div class="v">' + (item.shelfLoad.capacityKg === null ? '—' : escapeHtml(String(item.shelfLoad.capacityKg)) + ' kg') + '</div></div>' +
-            '<div class="item-field"><div class="k">بار فعلی قفسه</div><div class="v">' + escapeHtml(String(item.shelfLoad.currentLoad)) + ' kg</div></div>' +
-            '<div class="item-field"><div class="k">ظرفیت باقیمانده</div><div class="v">' + (item.shelfLoad.remainingCapacity === null ? '—' : escapeHtml(String(item.shelfLoad.remainingCapacity)) + ' kg') + '</div></div>' +
-          '</div>' +
-          shelfUsageBarHtmlClient_(item.shelfLoad.usagePercent, slColor) +
-        '</div>';
+    // >>> اصلاح شد: «ظرفیت قفسه» حالا یک جدول با ستون‌های دقیق کد قفسه | حداکثر ظرفیت | بار موجود |
+    // ظرفیت باقیمانده | درصد پربودن است و برای هر قفسه یک ردیف کامل نشان می‌دهد. اگر سرور فیلدهای
+    // ظرفیت را برای هر قفسه‌ی چندگانه برگردانده باشد (item.shelves[i].usagePercent/...، همان شکل
+    // item.shelfLoad)، همه‌ی قفسه‌ها با هم ردیف می‌شوند؛ در غیر این صورت فقط همان یک قفسه‌ی اصلی
+    // (item.shelfLoad) به‌عنوان یک ردیف نشان داده می‌شود — بدون داده‌ی جعلی.
+    var capacityRows = shelves.filter(function (s) { return s.usagePercent !== undefined && s.usagePercent !== null; });
+    if (!capacityRows.length && item.shelfLoad) {
+      capacityRows = [{
+        shelfCode: item.shelfCode, capacityKg: item.shelfLoad.capacityKg, currentLoad: item.shelfLoad.currentLoad,
+        remainingCapacity: item.shelfLoad.remainingCapacity, usagePercent: item.shelfLoad.usagePercent, loadStatus: item.shelfLoad.loadStatus
+      }];
     }
-    // <<< پایان بخش افزوده‌شده
+    var shelfCapacityHtml = '';
+    if (capacityRows.length) {
+      shelfCapacityHtml =
+        '<div class="section-title" style="margin-top:14px;">📋 ظرفیت قفسه</div>' +
+        capacityRows.map(function (r) {
+          var slColor = shelfLoadStatusColorClient_(r.loadStatus);
+          return '<div style="background:#fff;border:1px solid #eceef1;border-radius:10px;padding:12px 14px;margin-bottom:8px;">' +
+            '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">' +
+              '<div style="font-size:13.5px;font-weight:800;color:#3f4750;">🗄️ قفسه ' + escapeHtml(r.shelfCode) + '</div>' +
+              '<div style="font-size:12px;font-weight:800;color:' + slColor + ';">● ' + escapeHtml(r.loadStatus) + '</div>' +
+            '</div>' +
+            '<div class="item-fields" style="margin-bottom:8px;">' +
+              '<div class="item-field"><div class="k">حداکثر ظرفیت</div><div class="v">' + (r.capacityKg === null ? '—' : escapeHtml(String(r.capacityKg)) + ' kg') + '</div></div>' +
+              '<div class="item-field"><div class="k">بار موجود</div><div class="v">' + escapeHtml(String(r.currentLoad)) + ' kg</div></div>' +
+              '<div class="item-field"><div class="k">ظرفیت باقیمانده</div><div class="v">' + (r.remainingCapacity === null ? '—' : escapeHtml(String(r.remainingCapacity)) + ' kg') + '</div></div>' +
+            '</div>' +
+            shelfUsageBarHtmlClient_(r.usagePercent, slColor) +
+          '</div>';
+        }).join('');
+    }
+    // <<< پایان بخش اصلاح‌شده
 
     // >>> اصلاح شد: «وزن» حالا یک بخشِ مجزا با عنوانِ ساده‌ی «وزن» و یک ردیفِ تمیز (واحد | وزن فعلی
     // | ویرایش) است، هم‌راستا با مرجع طراحی. وزن کل موجودی (که قبلاً هم بود) حذف نشده، فقط به یک
@@ -1103,7 +1152,7 @@ function renderItemDetail(item) {
       lastCountHtml +
       weightShelfHtml +
       '<div class="sys-qty-row"><span class="k">موجودی سیستم' + (warehouses.length > 1 ? ' (مجموع کل انبارها)' : '') + '</span><span class="v">' + escapeHtml(item.systemQty !== '' && item.systemQty != null ? item.systemQty : '—') + '</span></div>' +
-      '<div class="count-form-title">ثبت شمارش انبارگردانی</div>' +
+      '<div class="count-form-title">📋 ثبت شمارش انبارگردانی</div>' +
       warehouseSelectHtml +
       shelfSelectHtml +
       '<div class="qty-row">' +
@@ -1112,6 +1161,11 @@ function renderItemDetail(item) {
         '<button class="qty-step" onclick="stepQty(1)">+</button>' +
       '</div>' +
       '<div class="diff-preview" id="diffPreview"></div>' +
+      // >>> افزوده شد: ردیف‌های اضافی برای شمارش هم‌زمانِ چند انبار/قفسه‌ی دیگر از همین کالا در یک
+      // صفحه — با «+ افزودن ردیف» اضافه می‌شوند و همه با یک «ذخیره و تایید» با هم ثبت می‌شوند
+      '<div id="extraCountRows"></div>' +
+      '<button type="button" class="btn btn-secondary" style="width:100%;padding:10px;font-size:13px;margin-bottom:10px;" onclick="addCountRow_()">+ افزودن ردیف</button>' +
+      // <<< پایان بخش افزوده‌شده
       '<textarea class="note-input" id="noteInput" placeholder="توضیحات (اختیاری)..."></textarea>' +
       // >>> افزوده شد: دکمه‌ی یکپارچه — «ذخیره و تایید» به‌جای دو دکمه‌ی جدا (ثبت شمارش + ذخیره تغییرات وزن/قفسه)
       '<button class="btn btn-primary" id="submitCountBtn" onclick="submitAll()">ذخیره و تایید</button>' +
@@ -1228,17 +1282,6 @@ function toggleWeightShelfEdit() {
   if (btn) btn.textContent = open ? '✎ ویرایش' : 'انصراف از ویرایش';
 }
 
-// >>> افزوده شد: میان‌بر «+ افزودن قفسه» در بالای صفحه (فهرست «موجودی به تفکیک قفسه») — به‌جای
-// تکرار فرم افزودن قفسه، همان فرم موجود در پایین صفحه («قفسه‌های این کالا») را باز می‌کند و به
-// آن اسکرول می‌کند. هیچ منطق/APIای تکرار نشده است.
-function scrollToAddShelf_() {
-  var box = document.getElementById('weightShelfEditBox');
-  if (box && box.style.display === 'none') toggleWeightShelfEdit();
-  var target = document.getElementById('newShelfSelect') || document.getElementById('shelfAssignmentsBox');
-  if (target && target.scrollIntoView) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  if (target && target.focus) target.focus();
-}
-// <<< پایان بخش افزوده‌شده
 
 // >>> افزوده شد: صف‌کردن آفلاینِ ویرایش وزن/قفسه (وقتی اینترنت قطع است یا ارسال آنلاین ناموفق بود)
 // چون محاسبه‌ی وزن کل و بار قفسه فقط سمت سرور انجام می‌شود، در حالت آفلاین نمی‌توان صفحه‌ی
@@ -1430,6 +1473,21 @@ function submitAll() {
   var itemForRecent = currentDetail;
   var itemCode = currentDetail.code;
 
+  // >>> افزوده شد: ردیف‌های اضافیِ «ثبت شمارش انبارگردانی» (چند انبار/قفسه در یک صفحه) — چون
+  // ردیف اول با موفقیت که ثبت شود renderScanNextScreen صدا زده می‌شود و کل صفحه (و این ردیف‌ها)
+  // از DOM پاک می‌شود، مقادیرشان همین الان (قبل از شروع زنجیره‌ی ذخیره) خوانده و نگه داشته می‌شود.
+  // هر ردیف دقیقاً با همان saveCountStep_ ردیف اصلی ثبت می‌شود — هیچ منطق ثبت جدیدی ساخته نشده.
+  var extraRows = [];
+  document.querySelectorAll('.extra-count-row').forEach(function (rowEl) {
+    var rQtyEl = rowEl.querySelector('.ecr-qty');
+    var rQty = rQtyEl ? rQtyEl.value : '';
+    if (rQty === '') return; // ردیف خالی نادیده گرفته می‌شود
+    var rWhEl = rowEl.querySelector('.ecr-wh');
+    var rShEl = rowEl.querySelector('.ecr-shelf');
+    extraRows.push({ qty: rQty, warehouse: rWhEl ? rWhEl.value : '', shelfCode: rShEl ? rShEl.value : '' });
+  });
+  // <<< پایان بخش افزوده‌شده
+
   if (btn) { btn.disabled = true; btn.textContent = 'در حال ذخیره...'; }
   if (wsMsg) { wsMsg.textContent = ''; wsMsg.className = 'diff-preview'; }
 
@@ -1439,10 +1497,49 @@ function submitAll() {
   }
   chain.then(function () {
     return saveCountStep_(itemForRecent, qty, note, warehouse, countShelfCode);
+  }).then(function () {
+    // >>> افزوده شد: ثبت متوالیِ ردیف‌های اضافی، هرکدام با همان saveCountStep_ (صف آفلاین/آنلاین
+    // دقیقاً مثل ردیف اول رعایت می‌شود، هرکدام clientOpId خودش را دارد)
+    var extraChain = Promise.resolve();
+    extraRows.forEach(function (r) {
+      extraChain = extraChain.then(function () { return saveCountStep_(itemForRecent, r.qty, note, r.warehouse, r.shelfCode); });
+    });
+    return extraChain;
+    // <<< پایان بخش افزوده‌شده
   }).catch(function () {
     // خطا قبلاً به‌صورت پیام/toast مناسب نمایش داده شده؛ فقط دکمه را برای تلاش دوباره فعال کن
     if (btn) { btn.disabled = false; btn.textContent = 'ذخیره و تایید'; }
   });
+}
+// <<< پایان بخش افزوده‌شده
+
+// >>> افزوده شد: مدیریت ردیف‌های اضافیِ «ثبت شمارش انبارگردانی» — افزودن/حذفِ ردیف در همین صفحه،
+// هرکدام یک انبار+قفسه+تعداد مستقل. از همان گزینه‌های انبار/قفسه‌ی کالای جاری استفاده می‌کند؛
+// چیزی به سرور نمی‌فرستد تا وقتی «ذخیره و تایید» زده شود (دقیقاً مثل ردیف اول).
+var extraCountRowSeq_ = 0;
+function addCountRow_() {
+  if (!currentDetail) return;
+  var container = document.getElementById('extraCountRows');
+  if (!container) return;
+  extraCountRowSeq_++;
+  var rid = 'ecr_' + extraCountRowSeq_;
+  var whs = currentDetail.warehouses || [];
+  var shs = currentDetail.shelves || [];
+  var whOptions = whs.length
+    ? whs.map(function (w) { return '<option value="' + escapeHtml(w.warehouse) + '">' + escapeHtml(w.warehouse) + '</option>'; }).join('')
+    : '<option value="">—</option>';
+  var shOptions = '<option value="">— بدون قفسه —</option>' +
+    shs.map(function (s) { return '<option value="' + escapeHtml(s.shelfCode) + '">' + escapeHtml(s.shelfCode) + '</option>'; }).join('');
+  var row = document.createElement('div');
+  row.className = 'extra-count-row';
+  row.id = rid;
+  row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:#f7f8fa;border:1px solid #eceef1;border-radius:10px;padding:10px;margin-bottom:8px;';
+  row.innerHTML =
+    '<select class="ecr-wh wh-select" style="flex:1 1 110px;min-width:100px;">' + whOptions + '</select>' +
+    '<select class="ecr-shelf wh-select" style="flex:1 1 110px;min-width:100px;">' + shOptions + '</select>' +
+    '<input type="number" class="ecr-qty qty-input" inputmode="decimal" placeholder="تعداد" style="flex:0 1 90px;min-width:70px;">' +
+    '<button type="button" class="icon-btn" style="flex:0 0 auto;color:#c53030;" title="حذف ردیف" onclick="document.getElementById(\'' + rid + '\').remove();">🗑</button>';
+  container.appendChild(row);
 }
 // <<< پایان بخش افزوده‌شده
 
