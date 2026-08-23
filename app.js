@@ -4,6 +4,27 @@
 // پیش‌فرض خودِ گوشی (هر برند) انجام می‌شود، نه با یک اسکنر داخل صفحه.
 // =====================================================================
 
+// >>> افزوده شد: رفع قطعیِ باگِ کوچک‌شدنِ رابط در PWA نصب‌شده روی اندروید. راه‌حل CSS ‌محورِ
+// قبلی (min-height:100dvh) فقط در Chrome/WebView نسخه‌ی ۱۰۸ به بعد پشتیبانی می‌شود؛ اگر دستگاه
+// از یک WebView/Chrome قدیمی‌تر استفاده کند، dvh نادیده گرفته می‌شود و همان vh معیوب (که در
+// حالت standalone بلندتر از صفحه‌ی واقعاً قابل‌مشاهده محاسبه می‌شود) دوباره فعال می‌ماند. این
+// تابع، به‌جای تکیه بر نام‌واحدهای CSS، مستقیماً از window.innerHeight/visualViewport.height
+// (که در هر نسخه‌ای از هر مرورگر، همیشه دقیقاً همان ارتفاع واقعاً قابل‌مشاهده است) یک متغیر
+// CSS می‌سازد؛ این متغیر در style.css به‌عنوان آخرین و معتبرترین مقدار min-height استفاده
+// می‌شود و روی هر تغییر اندازه (چرخش صفحه، ظاهر/پنهان‌شدن کیبورد، تغییر نوار آدرس) به‌روز
+// می‌ماند. این یک رفع ریشه‌ای است، نه یک ترفند zoom.
+function updateAppViewportHeight_() {
+  var h = (window.visualViewport && window.visualViewport.height) || window.innerHeight;
+  if (h) document.documentElement.style.setProperty('--app-vh', h + 'px');
+}
+updateAppViewportHeight_();
+window.addEventListener('resize', updateAppViewportHeight_);
+window.addEventListener('orientationchange', updateAppViewportHeight_);
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', updateAppViewportHeight_);
+}
+// <<< پایان بخش افزوده‌شده
+
 // ===================== حافظه‌ی محلی =====================
 var LS_SERVER = 'wh_scanner_server_url';
 var LS_TOKEN = 'wh_scanner_token';
@@ -972,7 +993,11 @@ function findUnitFromFields_(item) {
 function groupShelvesByName_(activeShelves) {
   var groups = {}; var order = [];
   (activeShelves || []).forEach(function (s) {
-    var name = s.location || s.code;
+    // >>> بازطراحی شد: اولویت با فیلد category (سمت سرور، از شیت «قفسه‌ها» محاسبه می‌شود —
+    // نام‌های واقعی مثل A, B, C...)؛ location/code فقط برای سازگاری با کش آفلاینِ قدیمی‌تر
+    // (قبل از این نسخه) که هنوز فیلد category را نداشت، به‌عنوان جایگزین نگه داشته شده‌اند.
+    var name = s.category || s.location || s.code;
+    // <<< پایان بخش بازطراحی‌شده
     if (!groups[name]) { groups[name] = []; order.push(name); }
     groups[name].push(s);
   });
@@ -1185,46 +1210,14 @@ function renderItemDetail(item) {
       '</div>';
   }
 
-  // ---------- تخصیص قفسه (بخش جدا و همیشه‌نمایان — با انتخاب دومرحله‌ایِ نام‌قفسه→کد‌قفسه) ----------
-  var shelfAssignCard = '';
-  if (hasWarehouseAccess) {
-    var activeShelves = item.activeShelves || [];
-    var unassignedShelves = activeShelves.filter(function (s) {
-      return shelves.every(function (existing) { return existing.shelfCode !== s.code; });
-    });
-    var shelfRowsHtml = shelves.length
-      ? shelves.map(function (s) {
-          var safeId = 'sq_' + s.shelfCode.replace(/[^a-zA-Z0-9آ-ی]/g, '_');
-          return '<div class="shelf-edit-row" style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">' +
-            '<div style="flex:1;font-size:12.5px;font-weight:700;">قفسه ' + escapeHtml(s.shelfCode) + '</div>' +
-            '<input type="number" class="qty-input" id="' + safeId + '" min="0" inputmode="decimal" style="width:90px;" value="' + escapeHtml(s.qty === '' || s.qty == null ? '' : String(s.qty)) + '" placeholder="موجودی">' +
-            '<button class="btn btn-secondary" style="padding:8px 10px;" onclick="updateShelfAssignment(' + escapeHtml(JSON.stringify(s.shelfCode)) + ')">به‌روزرسانی</button>' +
-            '<button class="btn btn-secondary" style="padding:8px 10px;color:#c53030;" onclick="removeShelfAssignment(' + escapeHtml(JSON.stringify(s.shelfCode)) + ')">حذف</button>' +
-          '</div>';
-        }).join('')
-      : '<div class="empty-hint" style="margin-bottom:8px;">هنوز قفسه‌ای برای این کالا تخصیص داده نشده.</div>';
-    var addShelfHtml = unassignedShelves.length > 0
-      ? '<div class="shelf-add-row" style="margin-top:6px;">' +
-          buildShelfCascadeHtml_('newShelfSelect', unassignedShelves, '', '— انتخاب کد —') +
-          '<input type="number" class="qty-input" id="newShelfQty" min="0" inputmode="decimal" placeholder="موجودی" style="margin-top:8px;">' +
-          '<button class="btn btn-primary" style="margin-top:8px;width:100%;" onclick="addShelfAssignment()">افزودن قفسه</button>' +
-        '</div>'
-      : '';
-
-    shelfAssignCard =
-      '<div class="detail-card">' +
-        '<div class="detail-card-header"><span class="t">تخصیص قفسه</span><span class="ic">' + ICON_SHELF_ + '</span></div>' +
-        '<div class="detail-card-body">' +
-          '<div class="weight-meta-line" style="margin-top:0;margin-bottom:10px;">قفسه‌ی اصلی فعلی: <b id="shelfView">' + escapeHtml(item.shelfDisplay) + '</b></div>' +
-          buildShelfCascadeHtml_('shelfSelect', activeShelves, item.shelfCode, '— بدون قفسه —') +
-          '<div class="diff-preview" id="weightShelfMsg"></div>' +
-          '<div class="section-title" style="margin-top:12px;">قفسه‌های این کالا (چند قفسه‌ای)</div>' +
-          '<div id="shelfAssignmentsBox">' + shelfRowsHtml + '</div>' +
-          addShelfHtml +
-          '<div class="diff-preview" id="shelfAssignMsg"></div>' +
-        '</div>' +
-      '</div>';
-  }
+  // >>> بازطراحی شد: کارت جداگانه‌ی «تخصیص قفسه» کاملاً حذف شد — تخصیص/ویرایش قفسه از قبل و
+  // به‌طور خودکار از طریق «ثبت شمارش انبارگردانی» انجام می‌شود (هر ردیف شمارش، نام‌قفسه→کدقفسه
+  // را از همان فهرست کامل شیت «قفسه‌ها» انتخاب می‌کند؛ اگر آن قفسه هنوز به کالا تخصیص نیافته
+  // باشد، submitAll()/ensureShelfAssignmentStep_ پیش از ثبت شمارش، تخصیص را خودش می‌سازد —
+  // دقیقاً همان مکانیزم قبلی، بدون هیچ سامانه‌ی موازی/تکراری جدید). توابع
+  // updateShelfAssignment/removeShelfAssignment/addShelfAssignment برای سازگاری عقب‌رو دست‌نخورده
+  // در app.js باقی مانده‌اند، فقط دیگر از این‌جا (رابط کاربری) صدا زده نمی‌شوند.
+  // <<< پایان بخش بازطراحی‌شده
 
   // ---------- ثبت شمارش انبارگردانی (چندردیفی — منبع قفسه‌ها: فهرست کامل شیت «قفسه‌ها») ----------
   var countRowsInit = buildInitialCountRows_(item);
@@ -1243,7 +1236,7 @@ function renderItemDetail(item) {
       '</div>' +
     '</div>';
 
-  area.innerHTML = mainCard + warehousesCard + shelvesCard + capacityCard + weightCard + shelfAssignCard + countCard;
+  area.innerHTML = mainCard + warehousesCard + shelvesCard + capacityCard + weightCard + countCard;
 
   if (hasWarehouseAccess && shelves.length > 0) {
     loadShelfCapacitySection(item.code, shelves.map(function (s) { return s.shelfCode; }));
@@ -1660,15 +1653,18 @@ function submitAll() {
   if (!currentDetail) return;
 
   var weightEl = document.getElementById('unitWeightInput');
-  var shelfEl = document.getElementById('shelfSelect');
+  // >>> بازطراحی شد: کارت «تخصیص قفسه» (و به‌همراه آن #shelfSelect) کاملاً حذف شد؛ قفسه‌ی اصلیِ
+  // فعلیِ کالا دیگر از یک عنصر فرم خوانده نمی‌شود، بلکه همان مقدار شناخته‌شده‌ی currentDetail
+  // استفاده می‌شود تا ذخیره‌ی وزن هرگز قفسه‌ی موجود را به‌اشتباه خالی نکند.
+  var shelfEl = document.getElementById('shelfSelect'); // معمولاً دیگر در DOM نیست؛ null-safe
   var wsMsg = document.getElementById('weightShelfMsg');
   var weightMsgEl = document.getElementById('weightMsg');
   var unitWeight = weightEl ? weightEl.value : '';
-  var shelfCode = shelfEl ? shelfEl.value : '';
+  var shelfCode = shelfEl ? shelfEl.value : (currentDetail.shelfCode || '');
 
-  // >>> بازطراحی شد: مداد فقط جعبه‌ی وزن را باز/بسته می‌کند و قفسه‌ی اصلی همیشه در کارت جدا و
-  // همیشه‌نمایانِ «تخصیص قفسه» قابل‌ویرایش است؛ پس به‌جای «آیا جعبه باز است»، اینجا با مقایسه
-  // با مقدار اصلیِ کالا تشخیص داده می‌شود که آیا واقعاً چیزی تغییر کرده تا لازم باشد ذخیره شود.
+  // مداد فقط جعبه‌ی وزن را باز/بسته می‌کند؛ قفسه دیگر از این فرم قابل‌تغییر نیست (تخصیص قفسه
+  // از طریق ردیف‌های «ثبت شمارش انبارگردانی» انجام می‌شود) — پس با مقایسه با مقدار اصلیِ کالا
+  // تشخیص داده می‌شود که آیا وزن واقعاً تغییر کرده تا لازم باشد ذخیره شود.
   var origUnitWeight = (currentDetail.unitWeight === '' || currentDetail.unitWeight == null) ? '' : String(currentDetail.unitWeight);
   var origShelfCode = currentDetail.shelfCode || '';
   var weightChanged = !!weightEl && String(unitWeight) !== origUnitWeight;
