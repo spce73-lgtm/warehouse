@@ -96,11 +96,13 @@ h1,h2,h3,h4,h5,h6,
    قابل‌مشاهده محاسبه می‌شود (برخلاف تب Chrome که این دو معمولاً یکی هستند). چون .screen از
    min-height:100vh استفاده می‌کرد، #resultArea (flex:1) تا همان ارتفاعِ اغراق‌شده کش می‌آمد و
    ناوبری پایین (position:fixed;bottom:0) به‌جای ته صفحه‌ی واقعی، به ته همان ویوپورت بلندترِ
-   نادرست می‌چسبید — دقیقاً همان چیزی که در اسکرین‌شات دیده شد (محتوا بالا، فاصله‌ی خالیِ بزرگ،
-   ناوبری خیلی پایین‌تر از انتظار). واحد dvh دقیقاً برای رفع همین مشکل طراحی شده؛ به‌صورت
-   افزایشی بعد از vh اضافه شده تا مرورگرهای قدیمی‌تر (که dvh را نمی‌شناسند) همچنان به‌درستی از
-   همان vh استفاده کنند و چیزی نشکند. */
-.screen{display:none;min-height:100vh;min-height:100dvh;flex-direction:column;background:var(--bg);}
+   نادرست می‌چسبید. سه لایه به‌ترتیب اولویت (آخرین مقدارِ معتبر برنده است):
+   ۱) 100vh — پشتیبان همیشگی، حتی در قدیمی‌ترین مرورگرها.
+   ۲) 100dvh — واحد استاندارد و دقیق‌تر، اما فقط در Chrome/WebView نسخه‌ی ۱۰۸ به بعد کار می‌کند.
+   ۳) var(--app-vh) — مقداریست که app.js از window.innerHeight/visualViewport.height می‌سازد؛
+      چون به نام‌واحد CSS متکی نیست، در هر نسخه‌ای از هر مرورگر/WebView درست کار می‌کند و همین
+      لایه است که مشکل را در دستگاه‌هایی که هنوز dvh را پشتیبانی نمی‌کنند هم قطعاً رفع می‌کند. */
+.screen{display:none;min-height:100vh;min-height:100dvh;min-height:var(--app-vh, 100vh);flex-direction:column;background:var(--bg);}
 /* <<< پایان بخش بازطراحی‌شده */
 .screen.active{display:flex;animation:screenIn var(--dur) var(--ease);}
 @keyframes screenIn{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
