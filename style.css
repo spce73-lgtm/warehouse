@@ -462,9 +462,9 @@ body.has-bottom-nav #shelvesArea{padding-bottom:calc(78px + env(safe-area-inset-
    بازطراحی — «ثبت شمارش انبارگردانی» چندردیفی
    ===================================================================== */
 .count-rows{display:flex;flex-direction:column;gap:9px;margin-bottom:11px;}
-/* >>> بازطراحی شد: هر ردیف حالا ۴ فیلد دارد (انبار، نام قفسه، کد قفسه، تعداد) — برای خوانایی
-   در موبایل، به‌جای یک ردیفِ افقیِ فشرده، در دو خط چیده می‌شود: خط اول = انبار + نام قفسه
-   (فیلترها)، خط دوم = کد قفسه (نتیجه‌ی فیلتر) + تعداد + حذف. */
+/* >>> بازطراحی شد: هر ردیف حالا ۵ فیلد دارد (انبار، نام قفسه، کد قفسه، موجودی فعلی، تعداد) —
+   برای خوانایی در موبایل، در دو خط چیده می‌شود: خط اول = انبار + نام قفسه (فیلترها)، خط دوم =
+   کد قفسه (نتیجه‌ی فیلتر) + موجودی فعلی (فقط‌خواندنی) + تعداد + حذف. */
 .count-row{display:flex;flex-direction:column;gap:7px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-md);padding:9px;}
 .count-row-line1{display:flex;gap:6px;}
 .count-row-line1 select{
@@ -474,14 +474,21 @@ body.has-bottom-nav #shelvesArea{padding-bottom:calc(78px + env(safe-area-inset-
 .count-row-line1 select:focus{outline:none;border-color:var(--accent);}
 .count-row-line2{display:flex;align-items:center;gap:6px;}
 .count-row-line2 select.count-row-shelf{
-  flex:1;min-width:0;padding:9px 6px;font-size:11.5px;border:1.5px solid var(--border);border-radius:8px;
+  flex:1.1;min-width:0;padding:9px 6px;font-size:11.5px;border:1.5px solid var(--border);border-radius:8px;
   font-family:"SF Mono",Consolas,monospace;background:#fff;color:var(--accent);
 }
 .count-row-line2 select.count-row-shelf:focus{outline:none;border-color:var(--accent);}
+/* >>> افزوده شد: نشان «موجودی فعلی» — فقط‌خواندنی، برای مقایسه‌ی سریع هنگام شمارش */
+.count-row-current-qty{
+  flex:0 0 auto;min-width:34px;padding:9px 7px;font-size:12.5px;font-weight:800;text-align:center;
+  border:1.5px dashed var(--border-strong);border-radius:8px;background:#fff;color:var(--text-soft);
+}
+/* <<< پایان بخش افزوده‌شده */
 .count-row-line2 input.count-row-qty{
-  flex:0 0 78px;min-width:0;padding:9px 4px;font-size:14.5px;font-weight:800;text-align:center;
+  flex:1;min-width:0;padding:9px 4px;font-size:14.5px;font-weight:800;text-align:center;
   border:1.5px solid var(--border);border-radius:8px;font-family:inherit;background:#fff;
 }
+.count-row-line2 input.count-row-qty::placeholder{font-size:10.5px;font-weight:600;color:var(--muted);}
 .count-row-line2 input.count-row-qty:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-light);}
 .count-row-line2 .count-row-del{
   flex:0 0 auto;width:34px;height:34px;border-radius:8px;border:1px solid #f3d3d0;background:var(--bad-light);
@@ -489,6 +496,20 @@ body.has-bottom-nav #shelvesArea{padding-bottom:calc(78px + env(safe-area-inset-
 }
 .count-row-line2 .count-row-del:active{transform:scale(.9);}
 /* <<< پایان بخش بازطراحی‌شده */
+
+/* >>> افزوده شد: سرستون‌های واضح بالای ردیف‌های شمارش — هم‌راستا با دو خطِ هر ردیف */
+.count-row-header{padding:0 2px;margin-bottom:8px;}
+.count-row-header .count-row-line1,
+.count-row-header .count-row-line2{display:flex;gap:6px;margin-bottom:4px;}
+.count-row-header span{
+  flex:1;font-size:10px;font-weight:800;color:var(--muted);text-align:center;
+  text-transform:none;letter-spacing:0;
+}
+.count-row-header .hdr-code{flex:1.1;}
+.count-row-header .hdr-cur{flex:0 0 34px;min-width:34px;}
+.count-row-header .hdr-qty{flex:1;}
+/* <<< پایان بخش افزوده‌شده */
+
 .add-row-btn{
   width:100%;padding:12px;border:1.5px dashed var(--border-strong);border-radius:var(--r-md);background:var(--surface);
   color:var(--text-soft);font-weight:700;font-size:12.5px;cursor:pointer;font-family:inherit;
