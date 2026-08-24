@@ -1066,7 +1066,7 @@ function buildCountRowShelfCascadeHtml_(codeSelectId, activeShelves, selectedCod
   }
 
   return '<select class="count-row-shelf-name" id="' + nameSelectId + '" data-code-target="' + codeSelectId + '" onchange="onShelfNameCascadeChange_(this)">' + nameOptions + '</select>' +
-    '<select class="count-row-shelf" id="' + codeSelectId + '">' + codeOptions + '</select>';
+    '<select class="count-row-shelf" id="' + codeSelectId + '" onchange="onCountRowCodeChange_(this)">' + codeOptions + '</select>';
 }
 
 // وقتی «نام قفسه» عوض شود، گزینه‌های «کد قفسه»‌ی متناظر (از همان گروه‌بندیِ activeShelves) پر می‌شود
@@ -1078,11 +1078,30 @@ function onShelfNameCascadeChange_(nameSel) {
   var name = nameSel.value;
   if (!g || !name || !g.groups[name]) {
     codeSel.innerHTML = '<option value="">— ابتدا نام قفسه را انتخاب کنید —</option>';
-    return;
+  } else {
+    codeSel.innerHTML = '<option value="">— انتخاب کد —</option>' + g.groups[name].map(function (s) {
+      return '<option value="' + escapeHtml(s.code) + '">' + escapeHtml(s.code) + '</option>';
+    }).join('');
   }
-  codeSel.innerHTML = '<option value="">— انتخاب کد —</option>' + g.groups[name].map(function (s) {
-    return '<option value="' + escapeHtml(s.code) + '">' + escapeHtml(s.code) + '</option>';
-  }).join('');
+  // >>> افزوده شد: با تغییر نام قفسه، انتخاب کد باطل می‌شود؛ پس «موجودی فعلی» هم باید ریست شود
+  updateCountRowCurrentQtyBadge_(codeSel, '');
+  // <<< پایان بخش افزوده‌شده
+}
+
+// >>> افزوده شد: نمایش «موجودی فعلی» — وقتی کاربر یک کد قفسه را انتخاب می‌کند، اگر آن قفسه از
+// قبل روی این کالا موجودیِ ثبت‌شده دارد (currentDetail.shelves)، همان مقدار نشان داده می‌شود؛
+// در غیر این‌صورت («قفسه‌ی تازه») چیزی برای نمایش نیست.
+function onCountRowCodeChange_(selectEl) {
+  updateCountRowCurrentQtyBadge_(selectEl, selectEl.value);
+}
+function updateCountRowCurrentQtyBadge_(codeSelectEl, shelfCode) {
+  var row = codeSelectEl.closest('.count-row');
+  if (!row) return;
+  var badge = row.querySelector('.count-row-current-qty');
+  if (!badge) return;
+  var match = shelfCode && currentDetail ? (currentDetail.shelves || []).filter(function (s) { return s.shelfCode === shelfCode; })[0] : null;
+  var val = (match && match.qty !== '' && match.qty !== null && match.qty !== undefined) ? match.qty : null;
+  badge.textContent = val === null ? '—' : String(val);
 }
 // <<< پایان بخش افزوده‌شده
 
@@ -1146,7 +1165,7 @@ function renderItemDetail(item) {
                 '<th>موجودی قفسه</th><th>نام قفسه</th><th>کد قفسه</th>' +
               '</tr></thead><tbody>' +
                 shelves.map(function (s) {
-                  var loc = shelfNameMap[s.shelfCode] || '—';
+                  var loc = (s.shelfName && s.shelfName.trim()) ? s.shelfName : (shelfNameMap[s.shelfCode] || '—');
                   return '<tr><td class="num-cell">' + escapeHtml(s.qty === '' || s.qty == null ? '—' : String(s.qty)) + '</td>' +
                     '<td>' + escapeHtml(loc) + '</td><td class="code-cell">' + escapeHtml(s.shelfCode) + '</td></tr>';
                 }).join('') +
@@ -1223,12 +1242,28 @@ function renderItemDetail(item) {
   var countRowsInit = buildInitialCountRows_(item);
   var countRowsHtml = countRowsInit.map(function (r) { return buildCountRowHtml_(r, warehouses, item.activeShelves || []); }).join('');
 
+  // >>> افزوده شد: سرستون‌های واضح، دقیقاً هم‌راستا با دو خطِ هر ردیف (خط اول: انبار/نام‌قفسه،
+  // خط دوم: کدقفسه/موجودی‌فعلی/تعداد)
+  var countHeaderHtml =
+    '<div class="count-row-header">' +
+      '<div class="count-row-line1">' +
+        (warehouses.length ? '<span>نام انبار</span>' : '') +
+        (item.activeShelves && item.activeShelves.length ? '<span>نام قفسه</span>' : '') +
+      '</div>' +
+      '<div class="count-row-line2">' +
+        (item.activeShelves && item.activeShelves.length ? '<span class="hdr-code">کد قفسه</span><span class="hdr-cur">موجودی فعلی</span>' : '') +
+        '<span class="hdr-qty">تعداد/مقدار شمارش</span>' +
+      '</div>' +
+    '</div>';
+  // <<< پایان بخش افزوده‌شده
+
   var countCard =
     '<div class="detail-card">' +
       '<div class="detail-card-header"><span class="t">ثبت شمارش انبارگردانی</span><span class="ic">' + ICON_COUNT_ + '</span></div>' +
       '<div class="detail-card-body">' +
         lastCountHtml +
         '<div class="sys-qty-row"><span class="k">موجودی سیستم' + (warehouses.length > 1 ? ' (مجموع کل انبارها)' : '') + '</span><span class="v">' + escapeHtml(item.systemQty !== '' && item.systemQty != null ? item.systemQty : '—') + '</span></div>' +
+        countHeaderHtml +
         '<div class="count-rows" id="countRowsBox">' + countRowsHtml + '</div>' +
         '<button type="button" class="add-row-btn" onclick="addCountRow()">+ افزودن ردیف</button>' +
         '<textarea class="note-input" id="noteInput" placeholder="توضیحات (اختیاری)..."></textarea>' +
@@ -1246,22 +1281,29 @@ function renderItemDetail(item) {
 // >>> بازطراحی شد: ردیف‌های اولیه‌ی فرم شمارش — یک ردیف به‌ازای هر قفسه‌ی از قبل تخصیص‌یافته
 // (مقدار پیش‌فرض = موجودی فعلی همان قفسه)، یا در نبود هیچ قفسه‌ای، یک ردیف خالی که همچنان
 // کشوی «نام قفسه» را از فهرست کاملِ شیت «قفسه‌ها» پر می‌کند تا کاربر بتواند قفسه را انتخاب کند.
+// >>> بازطراحی شد: مقدار «تعداد/مقدار شمارش» دیگر از قبل با موجودیِ فعلی پر نمی‌شود (خالی
+// شروع می‌شود) — چون حالا «موجودی فعلی» به‌طور جداگانه نمایش داده می‌شود (نه در همان فیلدِ
+// ورودی)، و چون کاربر باید بتواند فقط یکی از قفسه‌ها را بشمارد و بقیه را خالی بگذارد (ردیف‌های
+// خالی هنگام ثبت نادیده گرفته می‌شوند، نه اینکه مانع ثبت شوند).
 function buildInitialCountRows_(item) {
   var warehouses = item.warehouses || [];
   var shelves = item.shelves || [];
   var defaultWh = warehouses.length ? warehouses[0].warehouse : '';
   if (shelves.length > 0) {
     return shelves.map(function (s, i) {
-      return { id: 'r' + i, warehouse: defaultWh, shelfCode: s.shelfCode, qty: (s.qty === '' || s.qty == null) ? '' : s.qty };
+      return { id: 'r' + i, warehouse: defaultWh, shelfCode: s.shelfCode, qty: '', currentQty: (s.qty === '' || s.qty == null) ? '' : s.qty };
     });
   }
-  return [{ id: 'r0', warehouse: defaultWh, shelfCode: '', qty: (item.systemQty === '' || item.systemQty == null) ? '' : item.systemQty }];
+  return [{ id: 'r0', warehouse: defaultWh, shelfCode: '', qty: '', currentQty: (item.systemQty === '' || item.systemQty == null) ? '' : item.systemQty }];
 }
+// <<< پایان بخش بازطراحی‌شده
 
 // activeShelves: فهرست کاملِ قفسه‌های فعال (از همان شیت «قفسه‌ها»، همراه پاسخ apiLookup) —
 // نه فقط قفسه‌های از قبل تخصیص‌یافته به این کالا. این یعنی حتی کالای بدون قفسه هم می‌تواند
 // نام/کد قفسه را از این فهرست انتخاب کند (بدون هیچ درخواست یا منبع داده‌ی جدید). انتخاب قفسه
 // دو مرحله‌ای است: اول «نام قفسه»، سپس فقط کدهای همان نام در «کد قفسه» نمایش داده می‌شود.
+// >>> بازطراحی شد: یک سلول جدید «موجودی فعلی» (فقط‌خواندنی) بین کد قفسه و ورودیِ شمارش اضافه
+// شد — مقدار واقعیِ ثبت‌شده‌ی همان قفسه (اگر باشد)، برای مقایسه‌ی سریع هنگام شمارش.
 function buildCountRowHtml_(row, warehouses, activeShelves) {
   var whHtml = '';
   if (warehouses.length) {
@@ -1274,14 +1316,17 @@ function buildCountRowHtml_(row, warehouses, activeShelves) {
     var codeSelectId = 'shelfCode_' + row.id;
     shelfCascadeHtml = buildCountRowShelfCascadeHtml_(codeSelectId, activeShelves, row.shelfCode);
   }
+  var currentQtyText = (row.currentQty === '' || row.currentQty == null) ? '—' : escapeHtml(String(row.currentQty));
   return '<div class="count-row" data-row-id="' + escapeHtml(row.id) + '">' +
     '<div class="count-row-line1">' + whHtml + shelfCascadeHtml + '</div>' +
     '<div class="count-row-line2">' +
-      '<input type="number" class="count-row-qty" inputmode="decimal" placeholder="0" value="' + (row.qty === '' || row.qty == null ? '' : escapeHtml(String(row.qty))) + '">' +
+      '<span class="count-row-current-qty" title="موجودی فعلی">' + currentQtyText + '</span>' +
+      '<input type="number" class="count-row-qty" inputmode="decimal" placeholder="مقدار شمارش" value="' + (row.qty === '' || row.qty == null ? '' : escapeHtml(String(row.qty))) + '">' +
       '<button type="button" class="count-row-del" onclick="removeCountRow(this)" title="حذف ردیف">' + ICON_TRASH_ + '</button>' +
     '</div>' +
   '</div>';
 }
+// <<< پایان بخش بازطراحی‌شده
 
 var countRowSeq_ = 0;
 function addCountRow() {
@@ -1291,7 +1336,7 @@ function addCountRow() {
   countRowSeq_++;
   var warehouses = currentDetail.warehouses || [];
   var activeShelves = currentDetail.activeShelves || [];
-  var row = { id: 'nr' + countRowSeq_, warehouse: warehouses.length ? warehouses[0].warehouse : '', shelfCode: '', qty: '' };
+  var row = { id: 'nr' + countRowSeq_, warehouse: warehouses.length ? warehouses[0].warehouse : '', shelfCode: '', qty: '', currentQty: '' };
   box.insertAdjacentHTML('beforeend', buildCountRowHtml_(row, warehouses, activeShelves));
 }
 
@@ -1684,21 +1729,26 @@ function submitAll() {
   var warehouses = currentDetail.warehouses || [];
   var existingShelfCodes = (currentDetail.shelves || []).map(function (s) { return s.shelfCode; });
   var rows = [];
+  // >>> بازطراحی شد: ردیف‌هایی که کاربر مقداری برایشان وارد نکرده، نادیده گرفته می‌شوند (نه
+  // اینکه کل ثبت را مسدود کنند) — کاربر باید بتواند فقط یک قفسه را بشمارد و بقیه را خالی
+  // بگذارد. فقط برای ردیف‌هایی که واقعاً مقدار دارند، انبار/قفسه اعتبارسنجی می‌شود.
   for (var i = 0; i < rowsEls.length; i++) {
     var rEl = rowsEls[i];
     var whSel = rEl.querySelector('.count-row-wh');
     var shSel = rEl.querySelector('.count-row-shelf');
     var qtyInput = rEl.querySelector('.count-row-qty');
     var qty = qtyInput ? qtyInput.value : '';
-    if (qty === '') { showToast('لطفاً مقدار شمارش را در همه‌ی ردیف‌ها وارد کنید', true); if (qtyInput) qtyInput.focus(); return; }
+    if (qty === '') continue; // ردیف خالی — نادیده گرفته می‌شود، مانع ثبت بقیه نمی‌شود
     var warehouse = whSel ? whSel.value : '';
-    if (warehouses.length && !warehouse) { showToast('لطفاً انبار را برای همه‌ی ردیف‌ها انتخاب کنید', true); if (whSel) whSel.focus(); return; }
+    if (warehouses.length && !warehouse) { showToast('لطفاً انبار را برای ردیف‌های دارای مقدار انتخاب کنید', true); if (whSel) whSel.focus(); return; }
     var rowShelfCode = shSel ? shSel.value : '';
-    if (shSel && !rowShelfCode) { showToast('لطفاً نام قفسه‌ی هر ردیف را انتخاب کنید', true); shSel.focus(); return; }
+    if (shSel && !rowShelfCode) { showToast('لطفاً نام/کد قفسه‌ی ردیف‌های دارای مقدار را انتخاب کنید', true); shSel.focus(); return; }
     var isNewShelf = !!(rowShelfCode && existingShelfCodes.indexOf(rowShelfCode) === -1);
     rows.push({ warehouse: warehouse, shelfCode: rowShelfCode, qty: qty, isNewShelf: isNewShelf });
     if (isNewShelf) existingShelfCodes.push(rowShelfCode); // یک ردیف تکراری برای همان قفسه‌ی تازه، دوباره تخصیص نسازد
   }
+  if (!rows.length) { showToast('حداقل برای یک ردیف، مقدار شمارش را وارد کنید', true); return; }
+  // <<< پایان بخش بازطراحی‌شده
 
   var note = (document.getElementById('noteInput') || {}).value || '';
 
