@@ -68,7 +68,7 @@ function showScreen(id) {
   document.querySelectorAll('.screen').forEach(function (s) { s.classList.toggle('active', s.id === id); });
   // >>> بازطراحی شد: نمایش/پنهان‌سازی ناوبری پایین سراسری — فقط در صفحاتی که کاربر وارد شده
   // (اصلی/قفسه‌ها) دیده می‌شود؛ در ورود/پیش‌نمایش عمومی پنهان است. صرفاً نمایشی است.
-  var loggedInScreen = (id === 'mainScreen' || id === 'shelvesScreen');
+  var loggedInScreen = (id === 'mainScreen' || id === 'shelvesScreen' || id === 'remainingScreen');
   var nav = document.getElementById('bottomNav');
   if (nav) nav.style.display = loggedInScreen ? 'flex' : 'none';
   document.body.classList.toggle('has-bottom-nav', loggedInScreen);
@@ -349,6 +349,7 @@ function refreshOfflineCache() {
       if (res.serverTime) localStorage.setItem(LS_LAST_SYNC, res.serverTime);
       localStorage.setItem(LS_LAST_SYNC_OK, '1'); // >>> افزوده شد: آخرین تلاش موفق بود
       renderSyncBar();
+      refreshRemainingCountBadge_(); // >>> افزوده شد: نشان «کالاهای باقیمانده» با هر بار به‌روزرسانی کش هماهنگ می‌ماند
       return { skipped: false, itemCount: (res.items || []).length, shelfCount: (res.shelves || []).length };
     });
   }).catch(function (err) {
@@ -633,6 +634,7 @@ function enterApp() {
   // >>> افزوده شد: نمایش نوار همگام‌سازی + تلاش خودکار برای ارسال هر عملیات باقیمانده از جلسه‌ی قبل
   renderSyncBar();
   refreshPendingCount();
+  refreshRemainingCountBadge_(); // >>> افزوده شد: نشان تعداد «کالاهای باقیمانده» زیر نوار جست‌وجو
   if (isOnline()) syncNow();
   // <<< پایان بخش افزوده‌شده
 
@@ -668,7 +670,7 @@ function searchOfflineIndex(q) {
       return (it.code && String(it.code).toLowerCase().indexOf(qNorm) !== -1) ||
              (it.name && String(it.name).toLowerCase().indexOf(qNorm) !== -1);
     }).slice(0, 50).map(function (it) {
-      return { code: it.code, name: it.name, qty: it.systemQty };
+      return { code: it.code, name: it.name, qty: it.systemQty, lastCount: it.lastCount || null };
     });
     lastSearchResults = results;
     lastSearchQuery = q;
@@ -683,6 +685,24 @@ function searchOfflineIndex(q) {
   }).catch(function () {
     area.innerHTML = '<div class="empty-hint">اتصال اینترنت برقرار نیست.</div>';
   });
+}
+// <<< پایان بخش افزوده‌شده
+
+// >>> افزوده شد: نتایج جست‌وجوی آنلاین (apiSearch) شامل «آخرین شمارش» نیستند؛ این فیلد را
+// از همان کش آفلاینِ کالاها (offline_items_index) — که از قبل برای پشتیبانی آفلاین موجود
+// است — می‌خوانیم. اگر کش هنوز موجود نباشد (مثلاً قبل از اولین Sync)، به‌سادگی تاریخی نشان
+// داده نمی‌شود؛ هرگز تاریخ ساختگی/فرضی نمایش داده نمی‌شود.
+function attachLastCountToResults_(results) {
+  return SyncDB.cacheGet('offline_items_index').then(function (rec) {
+    var items = (rec && rec.value) ? rec.value : [];
+    var map = {};
+    items.forEach(function (it) { if (it && it.code != null) map[String(it.code)] = it; });
+    results.forEach(function (r) {
+      var found = map[String(r.code)];
+      if (found && found.lastCount) r.lastCount = found.lastCount;
+    });
+    return results;
+  }).catch(function () { return results; });
 }
 // <<< پایان بخش افزوده‌شده
 
@@ -716,7 +736,11 @@ function doSearch() {
     } else if (results.length === 1) {
       openItemDetail(results[0].code);
     } else {
-      renderResultsList(results, q);
+      // >>> افزوده شد: تکمیل «آخرین شمارش» از کش آفلاین قبل از نمایش فهرست نتایج
+      attachLastCountToResults_(results).then(function (enriched) {
+        renderResultsList(enriched, q);
+      });
+      // <<< پایان بخش افزوده‌شده
     }
   }).catch(function () {
     // >>> افزوده شد: اتصال ناپایدار/قطع وسط جست‌وجو — به‌جای نمایش خطا، از کش آفلاین جست‌وجو کن
@@ -730,6 +754,12 @@ function renderResultsList(results, q) {
   var area = document.getElementById('resultArea');
   var html = '<div class="section-title">' + results.length + ' نتیجه برای «' + escapeHtml(q) + '»</div><div class="result-list">';
   results.forEach(function (r) {
+    // >>> افزوده شد: آخرین تاریخ شمارشِ این کالا (فقط تاریخ، بدون ساعت، برای سبک ماندن نتیجه)
+    // — از داده‌ی واقعیِ تاریخچه‌ی شمارش (lastCount) که از قبل در کش آفلاین موجود است؛ اگر
+    // کالا تا به حال شمارش نشده باشد، هیچ خطی اضافه نمی‌شود (سنگین‌تر نشدن نتیجه).
+    var lastCountDateOnly = (r.lastCount && r.lastCount.date) ? String(r.lastCount.date).split(' ')[0] : '';
+    var lastCountHtml = lastCountDateOnly ? ('<div class="result-lastcount">آخرین شمارش: ' + escapeHtml(lastCountDateOnly) + '</div>') : '';
+    // <<< پایان بخش افزوده‌شده
     html +=
       '<div class="result-row" onclick="openItemDetail(\'' + escapeHtml(r.code).replace(/'/g, "\\'") + '\')">' +
         '<div class="result-thumb">' + (r.thumb ? '<img src="' + escapeHtml(r.thumb) + '">' : '📦') + '</div>' +
@@ -740,6 +770,7 @@ function renderResultsList(results, q) {
             (r.category ? '<span>' + escapeHtml(r.category) + '</span>' : '') +
             (r.qty !== '' && r.qty != null ? '<span>موجودی: ' + escapeHtml(r.qty) + '</span>' : '') +
           '</div>' +
+          lastCountHtml +
         '</div>' +
       '</div>';
   });
@@ -755,6 +786,231 @@ function backToSearch() {
     renderRecentList();
   }
 }
+
+// ===================== کالاهای باقیمانده (هنوز شمارش نشده) =====================
+// >>> افزوده شد: این بخش کاملاً افزودنی است — هیچ تابع/رفتار موجودی را تغییر نمی‌دهد.
+// داده از همان کش آفلاینِ کالاها (offline_items_index) خوانده می‌شود که refreshOfflineCache()
+// (همان تابعی که سایر بخش‌های اپ — جست‌وجوی آفلاین، جزئیات کالا — از آن استفاده می‌کنند) پر
+// می‌کند؛ یعنی هیچ درخواست/فیلد جدیدی به سرور اضافه نشده (فقط فیلد افزودنیِ everCounted که
+// از قبل در پاسخ apiOfflineIndex قرار گرفته استفاده می‌شود). بنابراین هم آنلاین و هم آفلاین
+// کار می‌کند، دقیقاً مثل «لیست قفسه‌ها».
+var remainingItemsData_ = [];      // آخرین فهرست کالاهای باقیمانده (بدون فیلتر)
+var remainingItemsLoaded_ = false; // آیا حداقل یک‌بار در این جلسه بارگذاری شده؟ (برای بازگشت سریع از جزئیات کالا)
+var remainingSort_ = { key: '', dir: 1 };
+
+// کالاهایی که تا به حال (بدون محدودیت زمانی) شمارش نشده‌اند — دقیقاً همان تعریفِ
+// «کالاهای باقیمانده» در پنل مدیریتی (getCountCoverage)
+function filterRemainingFromIndex_(items) {
+  return (items || []).filter(function (it) { return !it.everCounted; });
+}
+
+// >>> افزوده شد: به‌روزرسانی نشان تعداد روی دکمه‌ی ورودی، زیر نوار جست‌وجو — از همان کش
+// موجود می‌خواند (بدون درخواست جدید)؛ اگر هنوز هیچ کشی موجود نباشد (مثلاً قبل از اولین ورود
+// آنلاین)، دکمه پنهان می‌ماند تا عدد نادرست/فرضی نشان داده نشود.
+function refreshRemainingCountBadge_() {
+  SyncDB.cacheGet('offline_items_index').then(function (rec) {
+    var items = (rec && rec.value) ? rec.value : [];
+    if (!items.length) { var btn0 = document.getElementById('remainingEntryBtn'); if (btn0) btn0.style.display = 'none'; return; }
+    var remaining = filterRemainingFromIndex_(items);
+    var badge = document.getElementById('remainingCountBadge');
+    if (badge) badge.textContent = String(remaining.length);
+    var btn = document.getElementById('remainingEntryBtn');
+    if (btn) btn.style.display = remaining.length ? '' : 'none';
+  }).catch(function () {});
+}
+
+function remainingBack() {
+  showScreen('mainScreen');
+  setActiveNav('search');
+}
+
+// preferCache=true: اگر قبلاً در همین جلسه بارگذاری شده، بدون درخواست جدید همان را دوباره نشان بده
+// (برای بازگشت سریع از جزئیات کالا با «بازگشت به لیست» — تجربه‌ی کاربری روان‌تر، بدون تاخیر شبکه)
+function openRemainingItemsList(preferCache) {
+  showScreen('remainingScreen');
+  setActiveNav('search');
+  setText('headerTitleRemaining', 'کالاهای باقیمانده');
+  var area = document.getElementById('remainingArea');
+
+  if (preferCache && remainingItemsLoaded_) {
+    renderRemainingItemsList();
+    return;
+  }
+
+  area.innerHTML = '<div class="lookup-loading"><div class="spinner"></div> در حال بارگذاری فهرست کالاهای باقیمانده...</div>';
+
+  // آفلاین: مستقیم از کش موجود بخوان (بدون تلاش برای apiCall) — دقیقاً مثل openShelvesList
+  if (!isOnline()) {
+    SyncDB.cacheGet('offline_items_index').then(function (rec) {
+      var items = (rec && rec.value) ? rec.value : [];
+      if (!items.length) {
+        area.innerHTML = '<div class="empty-hint">اتصال اینترنت برقرار نیست و داده‌ای برای کالاها ذخیره نشده است. لطفاً یک‌بار وقتی آنلاین هستید وارد شوید.</div>';
+        return;
+      }
+      showToast('نمایش داده‌ی محلی (آفلاین)', false);
+      remainingItemsData_ = filterRemainingFromIndex_(items);
+      remainingItemsLoaded_ = true;
+      renderRemainingItemsList();
+    }).catch(function () {
+      area.innerHTML = '<div class="empty-hint">اتصال اینترنت برقرار نیست.</div>';
+    });
+    return;
+  }
+
+  // آنلاین: از همان refreshOfflineCache() استفاده می‌شود (همان apiOfflineIndex که Sync هم
+  // استفاده می‌کند) تا کش هم به‌روز شود و هم بلافاصله برای این صفحه استفاده گردد — بدون
+  // هیچ درخواست/منطق تکراری.
+  refreshOfflineCache().then(function () {
+    return SyncDB.cacheGet('offline_items_index');
+  }).then(function (rec) {
+    var items = (rec && rec.value) ? rec.value : [];
+    remainingItemsData_ = filterRemainingFromIndex_(items);
+    remainingItemsLoaded_ = true;
+    renderRemainingItemsList();
+    refreshRemainingCountBadge_();
+  }).catch(function (err) {
+    // اگر دانلود کامل شکست بخورد (مثلاً اتصال ناپایدار)، تلاش برای نمایش آخرین نسخه‌ی کش‌شده
+    SyncDB.cacheGet('offline_items_index').then(function (rec) {
+      var items = (rec && rec.value) ? rec.value : [];
+      if (items.length) {
+        showToast('نمایش نسخه‌ی ذخیره‌شده (آفلاین)', false);
+        remainingItemsData_ = filterRemainingFromIndex_(items);
+        remainingItemsLoaded_ = true;
+        renderRemainingItemsList();
+      } else {
+        area.innerHTML = '<div class="empty-hint">خطا: ' + escapeHtml(err.message) + '</div>';
+      }
+    }).catch(function () {
+      area.innerHTML = '<div class="empty-hint">خطا: ' + escapeHtml(err.message) + '</div>';
+    });
+  });
+}
+
+// ستون‌های جدول: [کلید، عنوان، نوعِ فیلتر ('text' یا استخراج‌شده از fields)]
+var REMAINING_COLUMNS_ = [
+  { key: 'name', label: 'نام کالا' },
+  { key: 'code', label: 'کد کالا' },
+  { key: 'qty', label: 'تعداد' },
+  { key: 'unit', label: 'واحد سنجش' },
+  { key: 'whcode', label: 'کد انبار' },
+  { key: 'spec', label: 'مشخصات فنی' }
+];
+
+// یک ردیفِ خام کش‌شده را به مقادیر نمایشیِ ستون‌های جدول تبدیل می‌کند — از همان item.fields
+// موجود (بدون هیچ فیلد جدید سمت سرور)، دقیقاً با همان روش findUnitFromFields_ استفاده‌شده
+// در بقیه‌ی اپ برای «واحد سنجش».
+function remainingRowValues_(it) {
+  var unit = findUnitFromFields_(it);
+  var whcode = findFieldValue_(it, 'کد انبار');
+  if (whcode === '' && it.warehouses && it.warehouses.length) whcode = it.warehouses[0].warehouse || '';
+  var spec = findFieldValue_(it, 'TechnicalSpecification');
+  return {
+    name: it.name || '', code: it.code || '',
+    qty: (it.systemQty === '' || it.systemQty == null) ? '' : it.systemQty,
+    unit: unit || '', whcode: whcode || '', spec: spec || ''
+  };
+}
+
+function renderRemainingItemsList() {
+  var area = document.getElementById('remainingArea');
+  if (!remainingItemsData_.length) {
+    area.innerHTML = '<div class="empty-hint">🎉 همه‌ی کالاها حداقل یک‌بار شمارش شده‌اند.</div>';
+    return;
+  }
+
+  var filterCellsHtml = REMAINING_COLUMNS_.map(function (c) {
+    return '<th class="shelf-th sortable-th" onclick="sortRemainingBy_(\'' + c.key + '\')">' +
+      '<span class="sortable-th-label">' + escapeHtml(c.label) + '<span class="sort-arrow" id="sortArrow_' + c.key + '"></span></span>' +
+      '<input class="shelf-filter-input" id="rflt_' + c.key + '" onclick="event.stopPropagation();" oninput="applyRemainingFilter_()" placeholder="جست‌وجو...">' +
+    '</th>';
+  }).join('');
+
+  var html =
+    '<div class="section-title">کالاهای باقیمانده (<span id="remainingListCountLabel">' + remainingItemsData_.length + '</span>)</div>' +
+    '<div class="table-wrap"><table class="data-table" id="remainingListTable"><thead><tr>' + filterCellsHtml + '</tr></thead>' +
+    '<tbody id="remainingListBody">' + buildRemainingRowsHtml_(remainingItemsData_) + '</tbody></table></div>';
+  area.innerHTML = html;
+}
+
+function buildRemainingRowsHtml_(list) {
+  if (!list.length) return '<tr><td colspan="' + REMAINING_COLUMNS_.length + '"><div class="empty-hint">کالایی با این فیلتر یافت نشد.</div></td></tr>';
+  return list.map(function (it) {
+    var v = remainingRowValues_(it);
+    var safeCode = escapeHtml(String(it.code)).replace(/'/g, "\\'");
+    return '<tr class="clickable" onclick="viewItemFromRemainingList(\'' + safeCode + '\')">' +
+      '<td>' + escapeHtml(v.name || '—') + '</td>' +
+      '<td class="code-cell">' + escapeHtml(v.code) + '</td>' +
+      '<td class="num-cell">' + escapeHtml(v.qty === '' ? '—' : String(v.qty)) + '</td>' +
+      '<td>' + escapeHtml(v.unit || '—') + '</td>' +
+      '<td>' + escapeHtml(v.whcode || '—') + '</td>' +
+      '<td>' + escapeHtml(v.spec || '—') + '</td>' +
+    '</tr>';
+  }).join('');
+}
+
+// فیلتر لحظه‌ای، روی همان آرایه‌ی موجود در حافظه (remainingItemsData_) — بدون درخواست جدید
+// به سرور و بدون رفرش صفحه، مثل applyShelvesFilter_
+function applyRemainingFilter_() {
+  var filters = {};
+  REMAINING_COLUMNS_.forEach(function (c) {
+    var el = document.getElementById('rflt_' + c.key);
+    filters[c.key] = el ? el.value.trim().toLowerCase() : '';
+  });
+
+  var filtered = remainingItemsData_.filter(function (it) {
+    var v = remainingRowValues_(it);
+    return REMAINING_COLUMNS_.every(function (c) {
+      if (!filters[c.key]) return true;
+      return String(v[c.key] == null ? '' : v[c.key]).toLowerCase().indexOf(filters[c.key]) !== -1;
+    });
+  });
+
+  filtered = sortRemainingList_(filtered);
+
+  var body = document.getElementById('remainingListBody');
+  if (body) body.innerHTML = buildRemainingRowsHtml_(filtered);
+  var countLabel = document.getElementById('remainingListCountLabel');
+  if (countLabel) countLabel.textContent = filtered.length + (filtered.length !== remainingItemsData_.length ? ' از ' + remainingItemsData_.length : '');
+}
+
+function sortRemainingList_(list) {
+  if (!remainingSort_.key) return list;
+  var key = remainingSort_.key, dir = remainingSort_.dir;
+  var copy = list.slice();
+  copy.sort(function (a, b) {
+    var va = remainingRowValues_(a)[key], vb = remainingRowValues_(b)[key];
+    var na = Number(va), nb = Number(vb);
+    var cmp;
+    if (va !== '' && vb !== '' && !isNaN(na) && !isNaN(nb)) cmp = na - nb;
+    else cmp = String(va == null ? '' : va).localeCompare(String(vb == null ? '' : vb), 'fa');
+    return cmp * dir;
+  });
+  return copy;
+}
+
+// کلیک روی عنوان ستون: مرتب‌سازی صعودی/نزولی (کلیک دوباره جهت را برعکس می‌کند)
+function sortRemainingBy_(key) {
+  if (remainingSort_.key === key) remainingSort_.dir *= -1;
+  else { remainingSort_.key = key; remainingSort_.dir = 1; }
+  REMAINING_COLUMNS_.forEach(function (c) {
+    var el = document.getElementById('sortArrow_' + c.key);
+    if (!el) return;
+    el.textContent = (c.key === key) ? (remainingSort_.dir === 1 ? ' ▲' : ' ▼') : '';
+  });
+  applyRemainingFilter_();
+}
+
+// کلیک روی یک ردیف: همان مسیر همیشگیِ باز کردن جزئیات کالا (بدون هیچ منطق تکراری)، فقط با
+// نشانه‌ای که به کارت جزئیات می‌گوید لینک «بازگشت» باید به همین لیست برگردد.
+function viewItemFromRemainingList(code) {
+  openItemDetail(code, 'remaining');
+}
+
+function backToRemainingList_() {
+  currentDetail = null;
+  openRemainingItemsList(true);
+}
+// ===================== پایان بخش کالاهای باقیمانده =====================
 
 // ===================== پیش‌نمایش عمومی کالا (قبل از ورود) =====================
 // کش محلی فایل items.json (تا وقتی صفحه باز است، دوباره دانلود نمی‌شود)
@@ -878,7 +1134,7 @@ function showItemFromOfflineCache(code, area, fallbackMsg) {
       var found = items.filter(function (it) { return String(it.code) === String(code); })[0];
       if (!found) {
         area.innerHTML =
-          '<button class="back-link" onclick="backToSearch()">‹ بازگشت به جست‌وجو</button>' +
+          detailBackLinkHtml_() +
           '<div class="empty-hint">' + escapeHtml(fallbackMsg || 'اتصال اینترنت برقرار نیست و این کالا در داده‌ی محلی موجود نیست.') + '</div>';
         return;
       }
@@ -929,7 +1185,20 @@ function showItemFromOfflineCache(code, area, fallbackMsg) {
 }
 // <<< پایان بخش افزوده‌شده
 
-function openItemDetail(code) {
+// >>> افزوده شد: از کجا کاربر وارد جزئیات کالا شده؟ ('search' یا 'remaining') — فقط برای
+// تصمیم‌گیری در مورد متن/رفتار لینک «بازگشت» بالای کارت جزئیات استفاده می‌شود؛ هیچ منطق
+// دیگری (نمایش/ثبت شمارش) به این مقدار وابسته نیست.
+var itemDetailBackTarget = 'search';
+function detailBackLinkHtml_() {
+  if (itemDetailBackTarget === 'remaining') {
+    return '<button class="back-link" onclick="backToRemainingList_()">‹ بازگشت به لیست</button>';
+  }
+  return '<button class="back-link" onclick="backToSearch()">‹ بازگشت به جست‌وجو</button>';
+}
+// <<< پایان بخش افزوده‌شده
+
+function openItemDetail(code, backTarget) {
+  itemDetailBackTarget = (backTarget === 'remaining') ? 'remaining' : 'search';
   var area = document.getElementById('resultArea');
 
   // >>> افزوده شد: اگر اینترنت قطع است، مستقیم از کش آفلاین بخوان (بدون تلاش برای apiCall)
@@ -946,7 +1215,7 @@ function openItemDetail(code) {
     if (handleIfSessionExpired(res)) return;
     if (!res.success) {
       area.innerHTML =
-        '<button class="back-link" onclick="backToSearch()">‹ بازگشت به جست‌وجو</button>' +
+        detailBackLinkHtml_() +
         '<div class="empty-hint">' + escapeHtml(res.message || 'کالا پیدا نشد.') + '</div>';
       return;
     }
@@ -985,6 +1254,17 @@ function findUnitFromFields_(item) {
   }
   return '';
 }
+
+// >>> افزوده شد: مقدار یک فیلد توصیفی بر اساس بخشی از عنوان آن (مثلاً «کد انبار» یا
+// «TechnicalSpecification») — همان آرایه‌ی fields موجود، بدون هیچ فیلد/درخواست جدید.
+function findFieldValue_(item, keyword) {
+  var f = item.fields || [];
+  for (var i = 0; i < f.length; i++) {
+    if (String(f[i][0]).indexOf(keyword) !== -1) return f[i][1];
+  }
+  return '';
+}
+// <<< پایان بخش افزوده‌شده
 
 // >>> افزوده شد: انتخاب دومرحله‌ایِ قفسه (نام قفسه → کد قفسه) — در همه‌جا (پنل وزن/تخصیص قفسه،
 // ردیف‌های شمارش) از همین دو تابع استفاده می‌شود. منبع داده دقیقاً همان activeShelves موجود
@@ -1127,7 +1407,7 @@ function renderItemDetail(item) {
   // ---------- کارت اصلی ----------
   var mainCard =
     '<div class="detail-card"><div class="detail-card-body">' +
-      '<button class="back-link" onclick="backToSearch()">‹ بازگشت به جست‌وجو</button>' +
+      detailBackLinkHtml_() +
       galleryHtml +
       '<div class="item-title">' + escapeHtml(item.name || '(بدون نام)') + '</div>' +
       '<div class="item-code-pill">' + escapeHtml(item.code) + '</div>' +
