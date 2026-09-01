@@ -70,6 +70,17 @@
     </button>
   </div>
 
+  <!-- >>> افزوده شد: ورودی به فهرست «کالاهای باقیمانده» (کالاهایی که هنوز شمارش نشده‌اند)،
+       دقیقاً زیر نوار جست‌وجو، مشابه قابلیت هم‌نام موجود در پنل مدیریتیِ گوگل‌اسکریپت.
+       تعداد از قبل معلوم نیست؛ با داده‌ی واقعیِ کش‌شده (آفلاین/آنلاین) در app.js پر و در صورت
+       نبودِ هیچ کالای باقیمانده، به‌طور خودکار پنهان می‌شود. -->
+  <button class="remaining-entry-btn" id="remainingEntryBtn" onclick="openRemainingItemsList()" style="display:none;">
+    <span class="remaining-entry-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M14 17h7M17.5 13.5v7"/></svg></span>
+    <span class="remaining-entry-text">مشاهده فهرست کالاهای باقیمانده (<span id="remainingCountBadge">۰</span> مورد)</span>
+    <span class="remaining-entry-arrow">‹</span>
+  </button>
+  <!-- <<< پایان بخش افزوده‌شده -->
+
   <div id="resultArea">
     <div class="section-title">آخرین موارد ثبت‌شده در این جلسه</div>
     <div id="recentList"><div class="empty-hint">دوربین گوشی را روی کیوآرکد کالا بگیرید، یا کد/نام را اینجا تایپ کنید.</div></div>
@@ -102,6 +113,21 @@
   <div id="shelvesArea" style="padding:14px;overflow-y:auto;flex:1;"></div>
 </div>
 
+<!-- ============ صفحه‌ی «کالاهای باقیمانده» — کالاهایی که هنوز شمارش نشده‌اند ============ -->
+<!-- >>> افزوده شد: جدول حرفه‌ای مشابه «لیست قفسه‌ها» با فیلتر لحظه‌ای/مرتب‌سازی؛ داده از همان
+     کشِ آفلاینِ کالاها (offline_items_index) که سایر بخش‌های اپ هم استفاده می‌کنند خوانده
+     می‌شود — بدون هیچ منطق/درخواست تکراری. -->
+<div class="screen" id="remainingScreen">
+  <div class="app-header">
+    <button class="header-back-btn" onclick="remainingBack()" title="بازگشت">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+    </button>
+    <div class="header-title" id="headerTitleRemaining">کالاهای باقیمانده</div>
+    <div style="width:36px;flex-shrink:0;"></div>
+  </div>
+  <div id="remainingArea" style="padding:14px;overflow-y:auto;flex:1;"></div>
+</div>
+<!-- <<< پایان بخش افزوده‌شده -->
 <div class="toast" id="toast"></div>
 
 <!-- >>> افزوده شد: ناوبری پایین سراسری — فقط وقتی کاربر وارد شده (mainScreen/shelvesScreen)
