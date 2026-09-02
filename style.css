@@ -430,7 +430,8 @@ h1,h2,h3,h4,h5,h6,
 
 /* فضای لازم بالای نوار پایین تا محتوا زیر آن پنهان نشود */
 body.has-bottom-nav #resultArea,
-body.has-bottom-nav #shelvesArea{padding-bottom:calc(78px + env(safe-area-inset-bottom));}
+body.has-bottom-nav #shelvesArea,
+body.has-bottom-nav #remainingArea{padding-bottom:calc(78px + env(safe-area-inset-bottom));}
 
 /* =====================================================================
    بازطراحی — کارت‌های بخش‌بندی‌شده‌ی جزئیات کالا
@@ -461,12 +462,27 @@ body.has-bottom-nav #shelvesArea{padding-bottom:calc(78px + env(safe-area-inset-
   width:100%;min-width:64px;padding:6px 5px;font-size:10.5px;border:1.5px solid var(--border);border-radius:6px;
   font-family:inherit;background:#fff;margin-top:5px;color:var(--text);
 }
-/* >>> افزوده شد: فریز/چسبناک‌شدنِ ردیف عنوان+فیلترِ جدول (لیست قفسه‌ها و کالاهای باقیمانده)
-   درست زیر هدر چسبناک بالای صفحه، هنگام اسکرول — پس‌زمینه‌ی خودِ th (var(--surface)) از قبل
-   کدر است، پس ردیف‌های زیرین هنگام اسکرول از پشتش دیده نمی‌شوند. */
+/* >>> افزوده شد: رفعِ ریشه‌ایِ چسبناک‌نشدنِ ردیف عنوان+فیلترِ جدول (لیست قفسه‌ها و کالاهای
+   باقیمانده). علت واقعی: .table-wrap از overflow-x:auto استفاده می‌کند تا جدول‌های پهن در
+   موبایل به‌صورت افقی اسکرول شوند؛ اما طبق مشخصات CSS، وقتی overflow-x چیزی غیر از visible
+   باشد، مرورگر overflow-y را هم به‌طور خودکار auto در نظر می‌گیرد — یعنی .table-wrap بدون
+   اینکه بخواهیم، خودش یک «کانتینر اسکرول‌شونده» می‌شود و position:sticky داخلش را نسبت به
+   همان جعبه‌ی کوچک (که هیچ‌وقت واقعاً اسکرول نمی‌کند) محاسبه می‌کند، نه نسبت به صفحه‌ی واقعی.
+   راه‌حل: به‌جای تکیه بر اسکرولِ کل صفحه، همین دو جدول (که شناسه‌ی مشخص دارند) را با یک
+   ارتفاعِ محدودِ واقعی، خودشان به تنها ناحیه‌ی اسکرول‌شونده تبدیل می‌کنیم — همان الگوی
+   استاندارد «جدول با هدر چسبناک». border-collapse هم به separate تغییر کرد چون برخی نسخه‌های
+   WebKit با position:sticky روی th داخل جدول border-collapse:collapse مشکل دارند؛ چون در این
+   طراحی هیچ بوردر عمودی/مشترکی بین سلول‌ها نیست، این تغییر هیچ تفاوت بصری‌ای ایجاد نمی‌کند. */
+#shelvesTableWrap,
+#remainingTableWrap{
+  overflow:auto;
+  max-height:calc(var(--app-vh, 100vh) - var(--sticky-header-h, 58px) - 170px);
+}
+#shelvesListTable,
+#remainingListTable{border-collapse:separate;border-spacing:0;}
 #shelvesListTable thead th,
 #remainingListTable thead th{
-  position:sticky;top:var(--sticky-header-h, 58px);z-index:15;
+  position:sticky;top:0;z-index:15;
 }
 /* <<< پایان بخش افزوده‌شده */
 
