@@ -25,6 +25,35 @@ if (window.visualViewport) {
 }
 // <<< پایان بخش افزوده‌شده
 
+// >>> افزوده شد: افستِ دقیقِ عناصر «چسبناک» (هدر بالا، نوار جست‌وجو، دکمه‌ی کالاهای
+// باقیمانده) برای سه فهرست (لیست قفسه‌ها، کالاهای باقیمانده، نتایج جست‌وجو). چون ارتفاع
+// واقعی هدر به safe-area-inset-top دستگاه بستگی دارد، به‌جای عدد ثابت در CSS، دقیقاً مثل
+// updateAppViewportHeight_ از اندازه‌گیری واقعی DOM استفاده می‌شود تا در هر دستگاهی درست
+// بماند. فقط دو متغیر CSS تولید می‌کند؛ هیچ عنصر جدیدی اضافه/جابه‌جا نمی‌شود.
+function updateStickyOffsets_() {
+  var header = document.querySelector('.screen.active .app-header') || document.querySelector('.app-header');
+  var headerH = header ? header.getBoundingClientRect().height : 58;
+  document.documentElement.style.setProperty('--sticky-header-h', headerH + 'px');
+
+  var searchRow = document.querySelector('.search-row');
+  var searchRowH = (searchRow && searchRow.getClientRects().length) ? searchRow.getBoundingClientRect().height : 0;
+  document.documentElement.style.setProperty('--sticky-after-search-h', (headerH + searchRowH) + 'px');
+
+  // >>> افزوده شد: اگر دکمه‌ی «کالاهای باقیمانده» نمایش داده می‌شود، ارتفاعش هم برای عنوانِ
+  // چسبناک بالای «نتایج جست‌وجو» (که زیر همه‌ی این نوار قرار دارد) لحاظ می‌شود
+  var remBtn = document.getElementById('remainingEntryBtn');
+  var remBtnH = (remBtn && remBtn.getClientRects().length) ? remBtn.getBoundingClientRect().height : 0;
+  document.documentElement.style.setProperty('--sticky-topbar-h', (headerH + searchRowH + remBtnH) + 'px');
+  // <<< پایان بخش افزوده‌شده
+}
+updateStickyOffsets_();
+window.addEventListener('resize', updateStickyOffsets_);
+window.addEventListener('orientationchange', updateStickyOffsets_);
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', updateStickyOffsets_);
+}
+// <<< پایان بخش افزوده‌شده
+
 // ===================== حافظه‌ی محلی =====================
 var LS_SERVER = 'wh_scanner_server_url';
 var LS_TOKEN = 'wh_scanner_token';
@@ -73,6 +102,7 @@ function showScreen(id) {
   if (nav) nav.style.display = loggedInScreen ? 'flex' : 'none';
   document.body.classList.toggle('has-bottom-nav', loggedInScreen);
   // <<< پایان بخش بازطراحی‌شده
+  updateStickyOffsets_(); // >>> افزوده شد: افستِ هدر/نوار جست‌وجو برای عناصر چسبناک، با هر تعویض صفحه به‌روز می‌شود
 }
 function showToast(msg, isErr) {
   var t = document.getElementById('toast');
@@ -670,7 +700,7 @@ function searchOfflineIndex(q) {
       return (it.code && String(it.code).toLowerCase().indexOf(qNorm) !== -1) ||
              (it.name && String(it.name).toLowerCase().indexOf(qNorm) !== -1);
     }).slice(0, 50).map(function (it) {
-      return { code: it.code, name: it.name, qty: it.systemQty, lastCount: it.lastCount || null };
+      return { code: it.code, name: it.name, qty: it.systemQty, lastCountDate: it.lastCountDate || '', everCounted: !!it.everCounted };
     });
     lastSearchResults = results;
     lastSearchQuery = q;
@@ -688,10 +718,13 @@ function searchOfflineIndex(q) {
 }
 // <<< پایان بخش افزوده‌شده
 
-// >>> افزوده شد: نتایج جست‌وجوی آنلاین (apiSearch) شامل «آخرین شمارش» نیستند؛ این فیلد را
-// از همان کش آفلاینِ کالاها (offline_items_index) — که از قبل برای پشتیبانی آفلاین موجود
-// است — می‌خوانیم. اگر کش هنوز موجود نباشد (مثلاً قبل از اولین Sync)، به‌سادگی تاریخی نشان
-// داده نمی‌شود؛ هرگز تاریخ ساختگی/فرضی نمایش داده نمی‌شود.
+// >>> افزوده شد: نتایج جست‌وجوی آنلاین (apiSearch) شامل تاریخ آخرین شمارش نیستند؛ این مقدار
+// را از همان کش آفلاینِ کالاها (offline_items_index) — که از قبل برای پشتیبانی آفلاین موجود
+// است — می‌خوانیم. از fieldهای lastCountDate/everCounted استفاده می‌شود که تاریخ واقعیِ
+// آخرین شمارش را بدون هیچ محدودیت زمانی نگه می‌دارند (برخلاف فیلد قدیمی‌تر lastCount که فقط
+// برای نمایشی دیگر، شمارش‌های قدیمی‌تر از یک سال را کنار می‌گذارد). اگر کش هنوز موجود نباشد
+// (مثلاً پیش از اولین Sync)، هیچ تاریخ/وضعیتی نشان داده نمی‌شود — هرگز چیزی فرضی/ساختگی
+// نمایش داده نمی‌شود.
 function attachLastCountToResults_(results) {
   return SyncDB.cacheGet('offline_items_index').then(function (rec) {
     var items = (rec && rec.value) ? rec.value : [];
@@ -699,7 +732,10 @@ function attachLastCountToResults_(results) {
     items.forEach(function (it) { if (it && it.code != null) map[String(it.code)] = it; });
     results.forEach(function (r) {
       var found = map[String(r.code)];
-      if (found && found.lastCount) r.lastCount = found.lastCount;
+      if (found) {
+        r.lastCountDate = found.lastCountDate || '';
+        r.everCounted = !!found.everCounted;
+      }
     });
     return results;
   }).catch(function () { return results; });
@@ -752,13 +788,21 @@ function doSearch() {
 function renderResultsList(results, q) {
   setHeaderTitle('نتایج جست‌وجو');
   var area = document.getElementById('resultArea');
-  var html = '<div class="section-title">' + results.length + ' نتیجه برای «' + escapeHtml(q) + '»</div><div class="result-list">';
+  var html = '<div class="section-title result-sticky-title">' + results.length + ' نتیجه برای «' + escapeHtml(q) + '»</div><div class="result-list">';
   results.forEach(function (r) {
     // >>> افزوده شد: آخرین تاریخ شمارشِ این کالا (فقط تاریخ، بدون ساعت، برای سبک ماندن نتیجه)
-    // — از داده‌ی واقعیِ تاریخچه‌ی شمارش (lastCount) که از قبل در کش آفلاین موجود است؛ اگر
-    // کالا تا به حال شمارش نشده باشد، هیچ خطی اضافه نمی‌شود (سنگین‌تر نشدن نتیجه).
-    var lastCountDateOnly = (r.lastCount && r.lastCount.date) ? String(r.lastCount.date).split(' ')[0] : '';
-    var lastCountHtml = lastCountDateOnly ? ('<div class="result-lastcount">آخرین شمارش: ' + escapeHtml(lastCountDateOnly) + '</div>') : '';
+    // — از داده‌ی واقعیِ تاریخچه‌ی شمارش (lastCountDate/everCounted، بدون هیچ محدودیت زمانی)
+    // که از قبل در کش آفلاین موجود است. اگر کالا واقعاً تا به حال شمارش نشده باشد («everCounted
+    // === false»)، به‌جای تاریخ، «بدون سابقه شمارش» نشان داده می‌شود. اگر اصلاً معلوم نباشد
+    // (مثلاً کش هنوز آماده نشده)، هیچ خط/وضعیتی نشان داده نمی‌شود — هرگز چیزی فرضی نمایش
+    // داده نمی‌شود.
+    var lastCountHtml = '';
+    if (r.lastCountDate) {
+      var dateOnly = String(r.lastCountDate).split(' ')[0];
+      lastCountHtml = '<div class="result-lastcount">آخرین شمارش: ' + escapeHtml(dateOnly) + '</div>';
+    } else if (r.everCounted === false) {
+      lastCountHtml = '<div class="result-lastcount">بدون سابقه شمارش</div>';
+    }
     // <<< پایان بخش افزوده‌شده
     html +=
       '<div class="result-row" onclick="openItemDetail(\'' + escapeHtml(r.code).replace(/'/g, "\\'") + '\')">' +
@@ -810,12 +854,18 @@ function filterRemainingFromIndex_(items) {
 function refreshRemainingCountBadge_() {
   SyncDB.cacheGet('offline_items_index').then(function (rec) {
     var items = (rec && rec.value) ? rec.value : [];
-    if (!items.length) { var btn0 = document.getElementById('remainingEntryBtn'); if (btn0) btn0.style.display = 'none'; return; }
+    if (!items.length) {
+      var btn0 = document.getElementById('remainingEntryBtn');
+      if (btn0) btn0.style.display = 'none';
+      updateStickyOffsets_(); // >>> افزوده شد
+      return;
+    }
     var remaining = filterRemainingFromIndex_(items);
     var badge = document.getElementById('remainingCountBadge');
     if (badge) badge.textContent = String(remaining.length);
     var btn = document.getElementById('remainingEntryBtn');
     if (btn) btn.style.display = remaining.length ? '' : 'none';
+    updateStickyOffsets_(); // >>> افزوده شد: ارتفاع این دکمه روی افستِ عنوانِ چسبناکِ نتایج جست‌وجو اثر دارد
   }).catch(function () {});
 }
 
