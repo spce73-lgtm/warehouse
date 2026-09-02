@@ -977,7 +977,7 @@ function renderRemainingItemsList() {
 
   var html =
     '<div class="section-title">کالاهای باقیمانده (<span id="remainingListCountLabel">' + remainingItemsData_.length + '</span>)</div>' +
-    '<div class="table-wrap"><table class="data-table" id="remainingListTable"><thead><tr>' + filterCellsHtml + '</tr></thead>' +
+    '<div class="table-wrap" id="remainingTableWrap"><table class="data-table" id="remainingListTable"><thead><tr>' + filterCellsHtml + '</tr></thead>' +
     '<tbody id="remainingListBody">' + buildRemainingRowsHtml_(remainingItemsData_) + '</tbody></table></div>';
   area.innerHTML = html;
 }
@@ -1053,6 +1053,8 @@ function sortRemainingBy_(key) {
 // کلیک روی یک ردیف: همان مسیر همیشگیِ باز کردن جزئیات کالا (بدون هیچ منطق تکراری)، فقط با
 // نشانه‌ای که به کارت جزئیات می‌گوید لینک «بازگشت» باید به همین لیست برگردد.
 function viewItemFromRemainingList(code) {
+  showScreen('mainScreen');
+  setActiveNav('search');
   openItemDetail(code, 'remaining');
 }
 
@@ -2213,7 +2215,7 @@ function renderShelvesList(shelves) {
 
   var html =
     '<div class="section-title">قفسه‌ها (<span id="shelvesCountLabel">' + shelvesListData_.length + '</span>)</div>' +
-    '<div class="table-wrap"><table class="data-table" id="shelvesListTable"><thead><tr>' +
+    '<div class="table-wrap" id="shelvesTableWrap"><table class="data-table" id="shelvesListTable"><thead><tr>' +
       '<th class="shelf-th">وضعیت<br><select class="shelf-filter-select" id="flt_status" onchange="applyShelvesFilter_()">' + statusOptions + '</select></th>' +
       '<th class="shelf-th">درصد پر بودن<br><input class="shelf-filter-input" id="flt_usagePercent" oninput="applyShelvesFilter_()" placeholder="مثلاً 80"></th>' +
       '<th class="shelf-th">ظرفیت باقی‌مانده<br><input class="shelf-filter-input" id="flt_remainingCapacity" oninput="applyShelvesFilter_()" placeholder="kg"></th>' +
