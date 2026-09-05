@@ -454,7 +454,8 @@ function syncNow(manual) {
       return {
         clientOpId: op.clientOpId, type: op.type, code: op.code,
         qty: op.qty, note: op.note, warehouse: op.warehouse,
-        unitWeight: op.unitWeight, shelfCode: op.shelfCode
+        unitWeight: op.unitWeight, shelfCode: op.shelfCode,
+        replaceShelfCode: op.replaceShelfCode // >>> افزوده شد: برای تعویضِ اتمیکِ قفسه از صفِ آفلاین
       };
     });
 
@@ -1623,10 +1624,13 @@ function buildInitialCountRows_(item) {
   var defaultWh = warehouses.length ? warehouses[0].warehouse : '';
   if (shelves.length > 0) {
     return shelves.map(function (s, i) {
-      return { id: 'r' + i, warehouse: defaultWh, shelfCode: s.shelfCode, qty: '', currentQty: (s.qty === '' || s.qty == null) ? '' : s.qty };
+      // >>> افزوده شد: originalShelfCode — قفسه‌ای که این ردیف با آن شروع شده؛ برای تشخیصِ
+      // «تعویضِ قفسه» در submitAll() از «افزودنِ قفسه‌ی کاملاً تازه» استفاده می‌شود.
+      return { id: 'r' + i, warehouse: defaultWh, shelfCode: s.shelfCode, originalShelfCode: s.shelfCode, qty: '', currentQty: (s.qty === '' || s.qty == null) ? '' : s.qty };
+      // <<< پایان بخش افزوده‌شده
     });
   }
-  return [{ id: 'r0', warehouse: defaultWh, shelfCode: '', qty: '', currentQty: (item.systemQty === '' || item.systemQty == null) ? '' : item.systemQty }];
+  return [{ id: 'r0', warehouse: defaultWh, shelfCode: '', originalShelfCode: '', qty: '', currentQty: (item.systemQty === '' || item.systemQty == null) ? '' : item.systemQty }];
 }
 // <<< پایان بخش بازطراحی‌شده
 
@@ -1649,7 +1653,7 @@ function buildCountRowHtml_(row, warehouses, activeShelves) {
     shelfCascadeHtml = buildCountRowShelfCascadeHtml_(codeSelectId, activeShelves, row.shelfCode);
   }
   var currentQtyText = (row.currentQty === '' || row.currentQty == null) ? '—' : escapeHtml(String(row.currentQty));
-  return '<div class="count-row" data-row-id="' + escapeHtml(row.id) + '">' +
+  return '<div class="count-row" data-row-id="' + escapeHtml(row.id) + '" data-original-shelf="' + escapeHtml(row.originalShelfCode || '') + '">' +
     '<div class="count-row-line1">' + whHtml + shelfCascadeHtml + '</div>' +
     '<div class="count-row-line2">' +
       '<span class="count-row-current-qty" title="موجودی فعلی">' + currentQtyText + '</span>' +
@@ -1668,7 +1672,7 @@ function addCountRow() {
   countRowSeq_++;
   var warehouses = currentDetail.warehouses || [];
   var activeShelves = currentDetail.activeShelves || [];
-  var row = { id: 'nr' + countRowSeq_, warehouse: warehouses.length ? warehouses[0].warehouse : '', shelfCode: '', qty: '', currentQty: '' };
+  var row = { id: 'nr' + countRowSeq_, warehouse: warehouses.length ? warehouses[0].warehouse : '', shelfCode: '', originalShelfCode: '', qty: '', currentQty: '' };
   box.insertAdjacentHTML('beforeend', buildCountRowHtml_(row, warehouses, activeShelves));
 }
 
@@ -1911,11 +1915,12 @@ function saveWeightShelfStep_(code, unitWeight, shelfCode) {
 // وزن/قفسه)، چون افزودن/حذف قفسه یک اقدام مدیریتی جداست، نه بخشی از ثبت شمارش.
 
 // صف‌کردن آفلاینِ افزودن/ویرایش/حذفِ یک تخصیص قفسه (وقتی اینترنت قطع است یا ارسال ناموفق بود)
-function queueUpdateShelfQty(itemCode, shelfCode, qty) {
+function queueUpdateShelfQty(itemCode, shelfCode, qty, replaceShelfCode) {
   var clientOpId = genUuid();
   var op = {
     clientOpId: clientOpId, type: 'updateShelfQty',
     code: itemCode, shelfCode: shelfCode, qty: qty,
+    replaceShelfCode: replaceShelfCode || '', // >>> افزوده شد: برای «تعویضِ اتمیکِ» قفسه در صفِ آفلاین
     ts: Date.now(), retryCount: 0
   };
   return SyncDB.enqueue(op).then(function () {
@@ -2019,6 +2024,32 @@ function ensureShelfAssignmentStep_(itemCode, shelfCode, qty) {
 }
 // <<< پایان بخش افزوده‌شده
 
+// >>> افزوده شد: تعویضِ اتمیکِ قفسه — وقتی کاربر در فرم شمارش، قفسه‌ی یک ردیفِ از قبل موجود
+// را عوض می‌کند (مثلاً «قفسه ۲» از A به B)، این تابع به‌جای «افزودنِ» B در کنارِ A، از همان
+// endpoint با پارامترِ replaceShelfCode=A استفاده می‌کند تا سرور A را دقیقاً با B جایگزین کند
+// (هیچ تکراری باقی نمی‌ماند). آفلاین هم پشتیبانی می‌شود (صفِ همان عملیات، با replaceShelfCode).
+function replaceShelfAssignmentStep_(itemCode, oldShelfCode, newShelfCode, qty) {
+  if (!isOnline()) {
+    return queueUpdateShelfQty(itemCode, newShelfCode, qty, oldShelfCode);
+  }
+  var clientOpId = genUuid();
+  return apiCall('apiUpdateItemShelfQty', { token: state.token, code: itemCode, shelfCode: newShelfCode, qty: qty, clientOpId: clientOpId, replaceShelfCode: oldShelfCode }).then(function (res) {
+    if (handleIfSessionExpired(res)) { var e = new Error('نشست منقضی شده'); e.stopChain = true; throw e; }
+    if (!res.success) {
+      showToast(res.message || 'خطا در تعویض قفسه', true);
+      var e2 = new Error(res.message || 'خطا در تعویض قفسه'); e2.stopChain = true; throw e2;
+    }
+    if (res.serverTime) localStorage.setItem(LS_LAST_SYNC, res.serverTime);
+    if (currentDetail && currentDetail.code === itemCode) {
+      currentDetail.shelves = res.shelves || currentDetail.shelves;
+    }
+  }).catch(function (err) {
+    if (err && err.stopChain) throw err;
+    return queueUpdateShelfQty(itemCode, newShelfCode, qty, oldShelfCode);
+  });
+}
+// <<< پایان بخش افزوده‌شده
+
 // >>> بازطراحی شد: فرم شمارش حالا چندردیفی است (یک ردیف به‌ازای هر انبار/قفسه). این تابع
 // همان مراحل قبلی (ابتدا در صورت نیاز ذخیره‌ی وزن/قفسه، سپس ثبت شمارش) را حفظ می‌کند؛ تنها
 // تفاوت این است که به‌جای یک شمارش، برای هر ردیفِ فرم یک‌بار saveCountStep_ فراخوانی می‌شود
@@ -2075,9 +2106,24 @@ function submitAll() {
     if (warehouses.length && !warehouse) { showToast('لطفاً انبار را برای ردیف‌های دارای مقدار انتخاب کنید', true); if (whSel) whSel.focus(); return; }
     var rowShelfCode = shSel ? shSel.value : '';
     if (shSel && !rowShelfCode) { showToast('لطفاً نام/کد قفسه‌ی ردیف‌های دارای مقدار را انتخاب کنید', true); shSel.focus(); return; }
-    var isNewShelf = !!(rowShelfCode && existingShelfCodes.indexOf(rowShelfCode) === -1);
-    rows.push({ warehouse: warehouse, shelfCode: rowShelfCode, qty: qty, isNewShelf: isNewShelf });
-    if (isNewShelf) existingShelfCodes.push(rowShelfCode); // یک ردیف تکراری برای همان قفسه‌ی تازه، دوباره تخصیص نسازد
+    // >>> اصلاح شد: رفعِ ریشه‌ایِ باگِ «تعویضِ قفسه باعثِ تکرار می‌شد». قبلاً این‌جا فقط بررسی
+    // می‌شد که آیا rowShelfCode از قبل تخصیص یافته یا نه (isNewShelf)؛ اگر کاربر قفسه‌ی یک
+    // ردیفِ از قبل موجود را عوض می‌کرد (مثلاً ردیفِ «قفسه ۲» از A به B)، originalShelfCode (=A)
+    // هرگز خوانده/حذف نمی‌شد، پس هم A دست‌نخورده می‌ماند و هم B به‌عنوان قفسه‌ای «تازه» اضافه
+    // می‌شد. حالا originalShelfCode همان ردیف (data-original-shelf، از buildInitialCountRows_)
+    // خوانده می‌شود: اگر با انتخابِ فعلی فرق داشته باشد، یعنی «تعویض»، نه «افزودن».
+    var originalShelfCode = rEl.getAttribute('data-original-shelf') || '';
+    var isReplaceShelf = !!(originalShelfCode && rowShelfCode && originalShelfCode !== rowShelfCode);
+    var isNewShelf = !isReplaceShelf && !!(rowShelfCode && existingShelfCodes.indexOf(rowShelfCode) === -1);
+    rows.push({ warehouse: warehouse, shelfCode: rowShelfCode, qty: qty, isNewShelf: isNewShelf, isReplaceShelf: isReplaceShelf, originalShelfCode: originalShelfCode });
+    if (isReplaceShelf) {
+      var oldIdx = existingShelfCodes.indexOf(originalShelfCode);
+      if (oldIdx !== -1) existingShelfCodes.splice(oldIdx, 1); // قفسه‌ی قدیمی دیگر «موجود» حساب نشود
+      existingShelfCodes.push(rowShelfCode);
+    } else if (isNewShelf) {
+      existingShelfCodes.push(rowShelfCode); // یک ردیف تکراری برای همان قفسه‌ی تازه، دوباره تخصیص نسازد
+    }
+    // <<< پایان بخش اصلاح‌شده
   }
   if (!rows.length) { showToast('حداقل برای یک ردیف، مقدار شمارش را وارد کنید', true); return; }
   // <<< پایان بخش بازطراحی‌شده
@@ -2096,7 +2142,9 @@ function submitAll() {
     chain = chain.then(function () { return saveWeightShelfStep_(itemCode, unitWeight, shelfCode); });
   }
   rows.forEach(function (row) {
-    if (row.isNewShelf) {
+    if (row.isReplaceShelf) {
+      chain = chain.then(function () { return replaceShelfAssignmentStep_(itemCode, row.originalShelfCode, row.shelfCode, row.qty); });
+    } else if (row.isNewShelf) {
       chain = chain.then(function () { return ensureShelfAssignmentStep_(itemCode, row.shelfCode, row.qty); });
     }
     chain = chain.then(function () { return saveCountStep_(itemForRecent, row.qty, note, row.warehouse, row.shelfCode); });
