@@ -128,15 +128,36 @@
   <div id="remainingArea" style="padding:14px;overflow-y:auto;flex:1;"></div>
 </div>
 <!-- <<< پایان بخش افزوده‌شده -->
+
+<!-- ============ صفحه‌ی «لیست کالاهای ورودی (QC / آزمایش / برگشتی)» ============ -->
+<!-- >>> افزوده شد: این صفحه هیچ داده/رابطِ کاربریِ جدیدی نمی‌سازد — همان صفحه‌ی موجودِ
+     لیست‌ساز (view=lbRecords) که در نسخه‌ی گوگل‌اسکریپت از قبل کار می‌کند، داخل یک iframe با
+     همان توکنِ نشستِ فعلی (state.token) باز می‌شود. یعنی داده، مجوزها، فیلتر/جدول و ثبتِ
+     رکورد، دقیقاً همان چیزی است که در نسخه‌ی دسکتاپ هم وجود دارد — بدون هیچ کدِ تکراری. -->
+<div class="screen" id="incomingQcScreen">
+  <div class="app-header">
+    <button class="header-back-btn" onclick="incomingQcBack()" title="بازگشت">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+    </button>
+    <div class="header-title">لیست کالاهای ورودی</div>
+    <div style="width:36px;flex-shrink:0;"></div>
+  </div>
+  <iframe id="incomingQcFrame" class="incoming-qc-frame" title="لیست کالاهای ورودی"></iframe>
+</div>
+<!-- <<< پایان بخش افزوده‌شده -->
+
 <div class="toast" id="toast"></div>
 
 <!-- >>> افزوده شد: ناوبری پایین سراسری — فقط وقتی کاربر وارد شده (mainScreen/shelvesScreen)
      نمایش داده می‌شود؛ نمایش/پنهان‌سازی و آی‌تم فعال توسط showScreen()/setActiveNav() در
-     app.js مدیریت می‌شود. ترتیب DOM (راست به چپ در RTL): لیست قفسه‌ها، جستجو، همگام‌سازی، خانه —
-     دقیقاً مطابق چیدمان خواسته‌شده (راست: لیست قفسه‌ها … چپ: خانه). -->
+     app.js مدیریت می‌شود. ترتیب DOM (راست به چپ در RTL): لیست قفسه‌ها، جستجو، لیست کالاهای
+     ورودی، خانه — دقیقاً مطابق چیدمان خواسته‌شده (راست: لیست قفسه‌ها … چپ: خانه). -->
 <!-- >>> بازطراحی شد: آیتم «خانه» از ناوبری پایین حذف شد (طبق درخواست) — صفحه‌ی اصلی/جزئیات
      کالا و renderRecentList/showScreen('mainScreen') کاملاً دست‌نخورده باقی مانده‌اند و از طریق
      «بازگشت به جست‌وجو» روی کارت جزئیات کالا یا آیتم «جستجو» همچنان در دسترس‌اند. -->
+<!-- >>> بازطراحی شد: دکمه‌ی «همگام‌سازی» در ناوبریِ پایین با «لیست کالاهای ورودی» جایگزین شد.
+     دکمه‌ی «همگام‌سازی» در هدرِ آبیِ بالای صفحه (headerSyncBtn) دست‌نخورده باقی مانده و همان
+     syncNow(true) قبلی را صدا می‌زند — همگام‌سازی دقیقاً مثل قبل کار می‌کند. -->
 <nav class="bottom-nav" id="bottomNav" style="display:none;">
   <button class="nav-item" id="navShelvesBtn" onclick="navGoShelves()" style="display:none;">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><rect x="3" y="10" width="18" height="4" rx="1"/><rect x="3" y="16" width="18" height="4" rx="1"/></svg>
@@ -146,10 +167,9 @@
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.6" y2="16.6"/></svg>
     <span>جستجو</span>
   </button>
-  <button class="nav-item" id="navSyncBtn" onclick="navGoSync()">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-    <span>همگام‌سازی</span>
-    <small id="navLastSync"></small>
+  <button class="nav-item" id="navIncomingQcBtn" onclick="navGoIncomingQc()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6v4l4 8a2 2 0 0 1-2 3H7a2 2 0 0 1-2-3l4-8V3z"/><line x1="9" y1="3" x2="15" y2="3"/><line x1="9" y1="11" x2="15" y2="11"/></svg>
+    <span>لیست کالاهای ورودی</span>
   </button>
 </nav>
 <!-- <<< پایان بخش بازطراحی‌شده -->
