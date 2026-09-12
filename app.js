@@ -97,7 +97,7 @@ function showScreen(id) {
   document.querySelectorAll('.screen').forEach(function (s) { s.classList.toggle('active', s.id === id); });
   // >>> بازطراحی شد: نمایش/پنهان‌سازی ناوبری پایین سراسری — فقط در صفحاتی که کاربر وارد شده
   // (اصلی/قفسه‌ها) دیده می‌شود؛ در ورود/پیش‌نمایش عمومی پنهان است. صرفاً نمایشی است.
-  var loggedInScreen = (id === 'mainScreen' || id === 'shelvesScreen' || id === 'remainingScreen');
+  var loggedInScreen = (id === 'mainScreen' || id === 'shelvesScreen' || id === 'remainingScreen' || id === 'incomingQcScreen');
   var nav = document.getElementById('bottomNav');
   if (nav) nav.style.display = loggedInScreen ? 'flex' : 'none';
   document.body.classList.toggle('has-bottom-nav', loggedInScreen);
@@ -318,11 +318,12 @@ function setShelvesHeaderTitle(text) { setText('headerTitleShelves', text); }
 var currentNavName = 'home';
 function setActiveNav(name) {
   currentNavName = name;
-  ['navSearchBtn', 'navSyncBtn', 'navShelvesBtn'].forEach(function (id) {
+  ['navSearchBtn', 'navIncomingQcBtn', 'navShelvesBtn'].forEach(function (id) {
     var el = document.getElementById(id);
     if (!el) return;
     var isActive = (id === 'navSearchBtn' && name === 'search') ||
-      (id === 'navShelvesBtn' && name === 'shelves');
+      (id === 'navShelvesBtn' && name === 'shelves') ||
+      (id === 'navIncomingQcBtn' && name === 'incomingQc');
     el.classList.toggle('active', isActive);
   });
 }
@@ -344,6 +345,26 @@ function navGoSync() {
 function navGoShelves() {
   openShelvesList();
 }
+// >>> افزوده شد: باز کردنِ «لیست کالاهای ورودی (QC / آزمایش / برگشتی)» — همان لیستِ موجودِ
+// لیست‌ساز در نسخه‌ی گوگل‌اسکریپت، از طریقِ iframe با همان توکنِ نشستِ فعلی. هیچ داده/API
+// جدیدی ساخته نشده؛ این دقیقاً همان صفحه‌ای است که در دسکتاپ هم استفاده می‌شود.
+var INCOMING_QC_LIST_ID = 'incoming_qc_items'; // شناسه‌ی همان لیستِ از‌قبل‌موجود در لیست‌ساز
+function navGoIncomingQc() {
+  if (!state.serverUrl || !state.token) { showToast('ابتدا وارد شوید', true); return; }
+  if (!isOnline()) { showToast('برای استفاده از این لیست به اتصال اینترنت نیاز است', true); return; }
+  showScreen('incomingQcScreen');
+  setActiveNav('incomingQc');
+  var frame = document.getElementById('incomingQcFrame');
+  if (frame) {
+    var src = state.serverUrl + '?view=lbRecords&listId=' + encodeURIComponent(INCOMING_QC_LIST_ID) + '&token=' + encodeURIComponent(state.token);
+    if (frame.getAttribute('data-src') !== src) { frame.src = src; frame.setAttribute('data-src', src); } // فقط اگر واقعاً فرق کرده دوباره بارگذاری کن
+  }
+}
+function incomingQcBack() {
+  showScreen('mainScreen');
+  setActiveNav('home');
+}
+// <<< پایان بخش افزوده‌شده
 // <<< پایان بخش افزوده‌شده
 
 // >>> افزوده شد: کش کامل داده‌ی آفلاین (کالاها + قفسه‌ها) — یک درخواست دسته‌ای، بدون تصویر
