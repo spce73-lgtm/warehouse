@@ -109,6 +109,9 @@ h1,h2,h3,h4,h5,h6,
       چون به نام‌واحد CSS متکی نیست، در هر نسخه‌ای از هر مرورگر/WebView درست کار می‌کند و همین
       لایه است که مشکل را در دستگاه‌هایی که هنوز dvh را پشتیبانی نمی‌کنند هم قطعاً رفع می‌کند. */
 .screen{display:none;min-height:100vh;min-height:100dvh;min-height:var(--app-vh, 100vh);flex-direction:column;background:var(--bg);}
+/* >>> افزوده شد: قاب «لیست کالاهای ورودی» — دقیقاً همان الگوی flex:1 که #shelvesArea/#remainingArea دارند */
+.incoming-qc-frame{flex:1;width:100%;border:none;background:#fff;}
+/* <<< پایان بخش افزوده‌شده */
 /* <<< پایان بخش بازطراحی‌شده */
 .screen.active{display:flex;animation:screenIn var(--dur) var(--ease);}
 @keyframes screenIn{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
@@ -432,6 +435,7 @@ h1,h2,h3,h4,h5,h6,
 body.has-bottom-nav #resultArea,
 body.has-bottom-nav #shelvesArea,
 body.has-bottom-nav #remainingArea{padding-bottom:calc(78px + env(safe-area-inset-bottom));}
+body.has-bottom-nav #incomingQcFrame{margin-bottom:calc(78px + env(safe-area-inset-bottom));}
 
 /* =====================================================================
    بازطراحی — کارت‌های بخش‌بندی‌شده‌ی جزئیات کالا
