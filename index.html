@@ -130,10 +130,10 @@
 <!-- <<< پایان بخش افزوده‌شده -->
 
 <!-- ============ صفحه‌ی «لیست کالاهای ورودی (QC / آزمایش / برگشتی)» ============ -->
-<!-- >>> افزوده شد: این صفحه هیچ داده/رابطِ کاربریِ جدیدی نمی‌سازد — همان صفحه‌ی موجودِ
-     لیست‌ساز (view=lbRecords) که در نسخه‌ی گوگل‌اسکریپت از قبل کار می‌کند، داخل یک iframe با
-     همان توکنِ نشستِ فعلی (state.token) باز می‌شود. یعنی داده، مجوزها، فیلتر/جدول و ثبتِ
-     رکورد، دقیقاً همان چیزی است که در نسخه‌ی دسکتاپ هم وجود دارد — بدون هیچ کدِ تکراری. -->
+<!-- >>> اصلاح شد: قبلاً این صفحه با iframe به صفحه‌ی HTML لیست‌ساز وصل می‌شد که به‌خاطرِ
+     X-Frame-Options گوگل مسدود می‌شد («refused to connect»). حالا مثلِ «لیست قفسه‌ها»،
+     داده از طریقِ JSONP گرفته و همین‌جا (بدون iframe) رندر می‌شود — همان دادهٔ لیست‌ساز،
+     بدون هیچ کدِ تکراری. -->
 <div class="screen" id="incomingQcScreen">
   <div class="app-header">
     <button class="header-back-btn" onclick="incomingQcBack()" title="بازگشت">
@@ -142,9 +142,9 @@
     <div class="header-title">لیست کالاهای ورودی</div>
     <div style="width:36px;flex-shrink:0;"></div>
   </div>
-  <iframe id="incomingQcFrame" class="incoming-qc-frame" title="لیست کالاهای ورودی"></iframe>
+  <div id="incomingQcArea" style="padding:14px;overflow-y:auto;flex:1;"></div>
 </div>
-<!-- <<< پایان بخش افزوده‌شده -->
+<!-- <<< پایان بخش اصلاح‌شده -->
 
 <div class="toast" id="toast"></div>
 
