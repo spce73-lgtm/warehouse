@@ -345,27 +345,188 @@ function navGoSync() {
 function navGoShelves() {
   openShelvesList();
 }
-// >>> افزوده شد: باز کردنِ «لیست کالاهای ورودی (QC / آزمایش / برگشتی)» — همان لیستِ موجودِ
-// لیست‌ساز در نسخه‌ی گوگل‌اسکریپت، از طریقِ iframe با همان توکنِ نشستِ فعلی. هیچ داده/API
-// جدیدی ساخته نشده؛ این دقیقاً همان صفحه‌ای است که در دسکتاپ هم استفاده می‌شود.
+// >>> اصلاح شد: قبلاً این صفحه با iframe به‌سمتِ صفحه‌ی HTML لیست‌ساز (view=lbRecords) باز
+// می‌شد. علتِ ریشه‌ایِ خطای «script.google.com refused to connect»: گوگل‌اسکریپت پاسخِ
+// HtmlService را با هدرِ X-Frame-Options می‌فرستد که امبدکردنِ آن در iframeِ یک دامنه‌ی دیگر
+// (اینجا GitHub Pages) را کاملاً مسدود می‌کند — این محدودیتِ خودِ گوگل است، نه چیزی که با
+// تغییرِ Code.gs قابلِ دور زدن باشد. راه‌حل: دقیقاً مثلِ بقیه‌ی تماس‌های اپ موبایل، از همان
+// JSONP (که اصلاً iframe/CORS نیست) با دو endpoint سبک و تازه (apiLbGetListData/
+// apiLbCreateRecord — که هر دو فقط توابعِ موجودِ لیست‌ساز را صدا می‌زنند) استفاده می‌شود، و
+// جدول/فرم با همان الگوی «لیست قفسه‌ها»یِ موجود رندر می‌شود.
 var INCOMING_QC_LIST_ID = 'incoming_qc_items'; // شناسه‌ی همان لیستِ از‌قبل‌موجود در لیست‌ساز
+var incomingQcData_ = { columns: [], records: [], perms: {}, productNames: [], departments: [], users: [] };
+
 function navGoIncomingQc() {
   if (!state.serverUrl || !state.token) { showToast('ابتدا وارد شوید', true); return; }
-  if (!isOnline()) { showToast('برای استفاده از این لیست به اتصال اینترنت نیاز است', true); return; }
   showScreen('incomingQcScreen');
   setActiveNav('incomingQc');
-  var frame = document.getElementById('incomingQcFrame');
-  if (frame) {
-    var src = state.serverUrl + '?view=lbRecords&listId=' + encodeURIComponent(INCOMING_QC_LIST_ID) + '&token=' + encodeURIComponent(state.token);
-    if (frame.getAttribute('data-src') !== src) { frame.src = src; frame.setAttribute('data-src', src); } // فقط اگر واقعاً فرق کرده دوباره بارگذاری کن
+  var area = document.getElementById('incomingQcArea');
+  if (!area) return;
+
+  if (!isOnline()) {
+    area.innerHTML = '<div class="empty-hint">در حال بارگذاری از داده‌ی محلی...</div>';
+    SyncDB.cacheGet('incoming_qc_data').then(function (rec) {
+      if (rec && rec.value) { showToast('نمایش داده‌ی محلی (آفلاین)', false); renderIncomingQcList_(rec.value, true); }
+      else area.innerHTML = '<div class="empty-hint">اتصال اینترنت برقرار نیست و داده‌ای ذخیره نشده است. لطفاً یک‌بار وقتی آنلاین هستید وارد شوید.</div>';
+    }).catch(function () { area.innerHTML = '<div class="empty-hint">اتصال اینترنت برقرار نیست.</div>'; });
+    return;
   }
+
+  area.innerHTML = '<div class="empty-hint">در حال بارگذاری فهرست...</div>';
+  apiCall('apiLbGetListData', { token: state.token, listId: INCOMING_QC_LIST_ID }).then(function (res) {
+    if (handleIfSessionExpired(res)) return;
+    if (!res.success) { area.innerHTML = '<div class="empty-hint">' + escapeHtml(res.message || 'خطا در دریافت اطلاعات.') + '</div>'; return; }
+    SyncDB.cacheSet('incoming_qc_data', res, 24 * 60 * 60 * 1000).catch(function () {});
+    renderIncomingQcList_(res, false);
+  }).catch(function (err) {
+    SyncDB.cacheGet('incoming_qc_data').then(function (rec) {
+      if (rec && rec.value) { showToast('نمایش نسخه‌ی ذخیره‌شده (آفلاین)', false); renderIncomingQcList_(rec.value, true); }
+      else area.innerHTML = '<div class="empty-hint">خطا: ' + escapeHtml(err.message) + '</div>';
+    }).catch(function () { area.innerHTML = '<div class="empty-hint">خطا: ' + escapeHtml(err.message) + '</div>'; });
+  });
 }
+
 function incomingQcBack() {
   showScreen('mainScreen');
   setActiveNav('home');
 }
-// <<< پایان بخش افزوده‌شده
-// <<< پایان بخش افزوده‌شده
+
+// ---- فرمِ ثبتِ رکوردِ جدید (فقط ستون‌های قابل‌ویرایش؛ خودکار/فرمول/لوکاپِ‌کد نمایش داده نمی‌شوند) ----
+function incomingQcEditableCols_() {
+  return incomingQcData_.columns.filter(function (c) { return c.type !== 'کد_خودکار' && c.type !== 'فرمول' && c.type !== 'کد_کالا_لوکاپ'; });
+}
+function incomingQcFieldInputHtml_(col) {
+  var common = ' class="iq-f" data-colid="' + escapeHtml(col.colId) + '" data-coltype="' + escapeHtml(col.type) + '"';
+  if (col.type === 'متن_بلند') return '<textarea rows="2"' + common + '></textarea>';
+  if (col.type === 'عدد') return '<input type="number" step="any"' + common + '>';
+  if (col.type === 'تاریخ') return '<input type="text" placeholder="1405/01/01"' + common + '>';
+  if (col.type === 'چک‌باکس') return '<input type="checkbox"' + common + '>';
+  if (col.type === 'کشویی') {
+    var h = '<select' + common + '><option value="">—</option>';
+    (col.options || []).forEach(function (o) { h += '<option value="' + escapeHtml(o) + '">' + escapeHtml(o) + '</option>'; });
+    return h + '</select>';
+  }
+  if (col.type === 'واحد') {
+    var h2 = '<select' + common + '><option value="">—</option>';
+    (incomingQcData_.departments || []).forEach(function (d) { h2 += '<option value="' + escapeHtml(d) + '">' + escapeHtml(d) + '</option>'; });
+    return h2 + '</select>';
+  }
+  if (col.type === 'کاربر') {
+    var h3 = '<select' + common + '><option value="">—</option>';
+    (incomingQcData_.users || []).forEach(function (u) { h3 += '<option value="' + escapeHtml(u.username) + '">' + escapeHtml(u.fullName) + '</option>'; });
+    return h3 + '</select>';
+  }
+  if (col.type === 'نام_کالا_لوکاپ') {
+    var dlId = 'iqdl_' + safeIdClient_(col.colId);
+    return '<input type="text" list="' + dlId + '" autocomplete="off" placeholder="نام کالا را تایپ یا انتخاب کنید"' + common + '>' +
+      '<datalist id="' + dlId + '">' + (incomingQcData_.productNames || []).map(function (n) { return '<option value="' + escapeHtml(n) + '">'; }).join('') + '</datalist>';
+  }
+  return '<input type="text"' + common + ' placeholder="' + escapeHtml(col.hint || '') + '">';
+}
+function safeIdClient_(s) { return String(s || '').replace(/[^a-zA-Z0-9_]/g, '_'); }
+
+function incomingQcFormHtml_() {
+  if (!incomingQcData_.perms.create) return '';
+  var cols = incomingQcEditableCols_();
+  var fields = cols.map(function (c) {
+    var full = (c.type === 'متن_بلند' || c.type === 'نام_کالا_لوکاپ');
+    return '<div class="iq-field' + (full ? ' iq-field-full' : '') + '"><label>' + escapeHtml(c.name) + (c.required ? ' *' : '') + '</label>' + incomingQcFieldInputHtml_(c) + '</div>';
+  }).join('');
+  return '<details class="iq-card" style="margin-bottom:12px;">' +
+    '<summary style="cursor:pointer;padding:10px 14px;font-weight:700;">+ ثبت کالای ورودی جدید</summary>' +
+    '<div style="padding:10px 14px;">' +
+      '<div class="iq-form-grid">' + fields + '</div>' +
+      '<div id="iqFormMsg"></div>' +
+      '<button type="button" class="btn btn-primary" style="margin-top:8px;" onclick="submitIncomingQcRecord_()">ثبت</button>' +
+    '</div>' +
+  '</details>';
+}
+
+function submitIncomingQcRecord_() {
+  var cols = incomingQcEditableCols_();
+  var data = {};
+  var missing = null;
+  cols.forEach(function (c) {
+    var el = document.querySelector('.iq-f[data-colid="' + c.colId + '"]');
+    if (!el) return;
+    var v = (c.type === 'چک‌باکس') ? (el.checked ? 'بله' : 'خیر') : el.value;
+    if (c.required && !String(v || '').trim() && !missing) missing = c.name;
+    data[c.colId] = v;
+  });
+  var msgBox = document.getElementById('iqFormMsg');
+  if (missing) { msgBox.innerHTML = '<div class="msg err">فیلد «' + escapeHtml(missing) + '» الزامی است.</div>'; return; }
+  if (!isOnline()) { msgBox.innerHTML = '<div class="msg err">برای ثبت به اتصال اینترنت نیاز است.</div>'; return; }
+  msgBox.innerHTML = '<div class="empty-hint">در حال ثبت...</div>';
+  apiCall('apiLbCreateRecord', { token: state.token, listId: INCOMING_QC_LIST_ID, dataJson: JSON.stringify(data) }).then(function (res) {
+    if (handleIfSessionExpired(res)) return;
+    if (!res.success) { msgBox.innerHTML = '<div class="msg err">خطا: ' + escapeHtml(res.message || '') + '</div>'; return; }
+    showToast('با موفقیت ثبت شد', false);
+    navGoIncomingQc(); // بازخوانیِ فهرست تا رکوردِ تازه هم دیده شود
+  }).catch(function (err) {
+    msgBox.innerHTML = '<div class="msg err">خطا: ' + escapeHtml(err.message) + '</div>';
+  });
+}
+
+// ---- جدولِ رکوردها (همان الگوی جدولِ «لیست قفسه‌ها»: فیلترِ لحظه‌ای، بدون رفرش صفحه) ----
+function renderIncomingQcList_(res, isOffline) {
+  incomingQcData_ = res;
+  var area = document.getElementById('incomingQcArea');
+  var visibleCols = (res.columns || []).filter(function (c) { return !c.hiddenInTable; });
+
+  var html = incomingQcFormHtml_();
+  html += '<div class="section-title">' + escapeHtml(res.list ? res.list.name : 'کالاهای ورودی') + ' (<span id="iqCountLabel">' + (res.records || []).length + '</span>)' + (isOffline ? ' — آفلاین' : '') + '</div>';
+
+  if (!visibleCols.length) {
+    area.innerHTML = html + '<div class="empty-hint">ستونی برای نمایش تعریف نشده.</div>';
+    return;
+  }
+
+  html += '<div class="table-wrap" id="iqTableWrap"><table class="data-table" id="iqTable"><thead><tr>' +
+    visibleCols.map(function (c, i) {
+      if (c.type === 'کشویی') {
+        var opts = '<option value="">همه</option>' + (c.options || []).map(function (o) { return '<option value="' + escapeHtml(o) + '">' + escapeHtml(o) + '</option>'; }).join('');
+        return '<th class="shelf-th">' + escapeHtml(c.name) + '<br><select class="shelf-filter-select" id="iqflt_' + i + '" onchange="applyIncomingQcFilter_()">' + opts + '</select></th>';
+      }
+      return '<th class="shelf-th">' + escapeHtml(c.name) + '<br><input class="shelf-filter-input" id="iqflt_' + i + '" oninput="applyIncomingQcFilter_()" placeholder="جست‌وجو..."></th>';
+    }).join('') +
+  '</tr></thead><tbody id="iqTableBody">' + buildIncomingQcRowsHtml_(res.records || [], visibleCols) + '</tbody></table></div>';
+
+  area.innerHTML = html;
+}
+
+function incomingQcCellText_(val, col) {
+  if (val == null || val === '') return '—';
+  if (col.type === 'چک‌باکس') return val === 'بله' ? '✔ بله' : 'خیر';
+  return String(val);
+}
+
+function buildIncomingQcRowsHtml_(records, visibleCols) {
+  if (!records.length) return '<tr><td colspan="' + visibleCols.length + '"><div class="empty-hint">موردی یافت نشد.</div></td></tr>';
+  return records.map(function (r) {
+    return '<tr>' + visibleCols.map(function (c) { return '<td>' + escapeHtml(incomingQcCellText_(r.data[c.colId], c)) + '</td>'; }).join('') + '</tr>';
+  }).join('');
+}
+
+// فیلترِ لحظه‌ای — روی همان آرایه‌ی موجود در حافظه (incomingQcData_.records)، بدون درخواستِ
+// جدید به سرور و بدون رفرشِ صفحه؛ دقیقاً مثلِ applyShelvesFilter_.
+function applyIncomingQcFilter_() {
+  var visibleCols = (incomingQcData_.columns || []).filter(function (c) { return !c.hiddenInTable; });
+  var filters = visibleCols.map(function (c, i) {
+    var el = document.getElementById('iqflt_' + i);
+    return el ? el.value.trim().toLowerCase() : '';
+  });
+  var filtered = (incomingQcData_.records || []).filter(function (r) {
+    return visibleCols.every(function (c, i) {
+      if (!filters[i]) return true;
+      return incomingQcCellText_(r.data[c.colId], c).toLowerCase().indexOf(filters[i]) !== -1;
+    });
+  });
+  var body = document.getElementById('iqTableBody');
+  if (body) body.innerHTML = buildIncomingQcRowsHtml_(filtered, visibleCols);
+  var lbl = document.getElementById('iqCountLabel');
+  if (lbl) lbl.textContent = filtered.length + (filtered.length !== (incomingQcData_.records || []).length ? ' از ' + incomingQcData_.records.length : '');
+}
+// <<< پایان بخش اصلاح‌شده
 
 // >>> افزوده شد: کش کامل داده‌ی آفلاین (کالاها + قفسه‌ها) — یک درخواست دسته‌ای، بدون تصویر
 // این تابع فقط وقتی آنلاین هستیم و کاربر وارد شده اجرا می‌شود؛ در غیر این صورت بی‌اثر است
