@@ -109,9 +109,23 @@ h1,h2,h3,h4,h5,h6,
       چون به نام‌واحد CSS متکی نیست، در هر نسخه‌ای از هر مرورگر/WebView درست کار می‌کند و همین
       لایه است که مشکل را در دستگاه‌هایی که هنوز dvh را پشتیبانی نمی‌کنند هم قطعاً رفع می‌کند. */
 .screen{display:none;min-height:100vh;min-height:100dvh;min-height:var(--app-vh, 100vh);flex-direction:column;background:var(--bg);}
-/* >>> افزوده شد: قاب «لیست کالاهای ورودی» — دقیقاً همان الگوی flex:1 که #shelvesArea/#remainingArea دارند */
-.incoming-qc-frame{flex:1;width:100%;border:none;background:#fff;}
-/* <<< پایان بخش افزوده‌شده */
+/* >>> اصلاح شد: قاب iframe دیگر لازم نیست (به‌خاطرِ X-Frame-Options حذف شد)؛ به‌جایش سبکِ
+   فرمِ ثبتِ «کالای ورودی» که به‌صورتِ بومی رندر می‌شود — کلاس‌های مجزا از .field (که برای
+   صفحه‌ی ورود استفاده می‌شود) تا هیچ تداخلی با آن ایجاد نشود. */
+.iq-form-grid{display:flex;flex-wrap:wrap;gap:10px;}
+.iq-field{flex:1 1 150px;min-width:150px;}
+.iq-field-full{flex-basis:100%;}
+.iq-field label{display:block;font-size:11.5px;font-weight:700;color:var(--text-soft);margin-bottom:4px;}
+.iq-field input,.iq-field select,.iq-field textarea{
+  width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;
+  font-size:13.5px;font-family:inherit;background:var(--surface);color:var(--text);box-sizing:border-box;
+}
+.iq-field input:focus,.iq-field select:focus,.iq-field textarea:focus{outline:none;border-color:var(--accent);background:#fff;box-shadow:0 0 0 3px var(--accent-light);}
+.iq-field textarea{resize:vertical;min-height:44px;}
+.iq-card{border:1px solid var(--border);border-radius:var(--r-md, 12px);background:#fff;overflow:hidden;}
+.iq-card summary{list-style:none;}
+.iq-card summary::-webkit-details-marker{display:none;}
+/* <<< پایان بخش اصلاح‌شده */
 /* <<< پایان بخش بازطراحی‌شده */
 .screen.active{display:flex;animation:screenIn var(--dur) var(--ease);}
 @keyframes screenIn{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
@@ -434,8 +448,8 @@ h1,h2,h3,h4,h5,h6,
 /* فضای لازم بالای نوار پایین تا محتوا زیر آن پنهان نشود */
 body.has-bottom-nav #resultArea,
 body.has-bottom-nav #shelvesArea,
-body.has-bottom-nav #remainingArea{padding-bottom:calc(78px + env(safe-area-inset-bottom));}
-body.has-bottom-nav #incomingQcFrame{margin-bottom:calc(78px + env(safe-area-inset-bottom));}
+body.has-bottom-nav #remainingArea,
+body.has-bottom-nav #incomingQcArea{padding-bottom:calc(78px + env(safe-area-inset-bottom));}
 
 /* =====================================================================
    بازطراحی — کارت‌های بخش‌بندی‌شده‌ی جزئیات کالا
@@ -478,14 +492,17 @@ body.has-bottom-nav #incomingQcFrame{margin-bottom:calc(78px + env(safe-area-ins
    WebKit با position:sticky روی th داخل جدول border-collapse:collapse مشکل دارند؛ چون در این
    طراحی هیچ بوردر عمودی/مشترکی بین سلول‌ها نیست، این تغییر هیچ تفاوت بصری‌ای ایجاد نمی‌کند. */
 #shelvesTableWrap,
-#remainingTableWrap{
+#remainingTableWrap,
+#iqTableWrap{
   overflow:auto;
   max-height:calc(var(--app-vh, 100vh) - var(--sticky-header-h, 58px) - 170px);
 }
 #shelvesListTable,
-#remainingListTable{border-collapse:separate;border-spacing:0;}
+#remainingListTable,
+#iqTable{border-collapse:separate;border-spacing:0;}
 #shelvesListTable thead th,
-#remainingListTable thead th{
+#remainingListTable thead th,
+#iqTable thead th{
   position:sticky;top:0;z-index:15;
 }
 /* <<< پایان بخش افزوده‌شده */
