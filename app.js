@@ -287,6 +287,13 @@ function renderSyncBar() {
     headerBtn.disabled = syncState.syncing;
   }
 
+  // >>> افزوده شد: تعدادِ موارد در انتظار همگام‌سازی، مستقیماً کنارِ برچسبِ «همگام‌سازی» —
+  // مثلاً «همگام‌سازی (۳)» — تا بدونِ بازکردنِ چیزی، همیشه دیده شود. وقتی صف خالی می‌شود این
+  // بخش خودش خالی/مخفی می‌شود. دکمه/عملکردِ موجودِ همگام‌سازی (onclick="syncNow(true)") کاملاً
+  // دست‌نخورده است — فقط همین برچسبِ کوچک اضافه شده.
+  setText('headerSyncCount', pending ? (' (' + pending + ')') : '');
+  // <<< پایان بخش افزوده‌شده
+
   var headerLastSyncText;
   if (syncState.syncing) headerLastSyncText = 'در حال همگام‌سازی...';
   else if (!online) headerLastSyncText = 'آفلاین' + (pending ? (' · ' + pending + ' در صف') : '');
@@ -416,14 +423,109 @@ function incomingQcFieldInputHtml_(col) {
     (incomingQcData_.users || []).forEach(function (u) { h3 += '<option value="' + escapeHtml(u.username) + '">' + escapeHtml(u.fullName) + '</option>'; });
     return h3 + '</select>';
   }
+  // >>> اصلاح شد: قبلاً یک <datalist> ساده‌ی HTML بود (بدون مشخصات کالا/جزئیات/امکانِ «کالای
+  // جدید»). حالا دقیقاً همان تجربه‌ی جست‌وجوی موجودِ اپ (apiSearch آنلاین + کشِ آفلاینِ
+  // offline_items_index) در یک کادرِ نتایج زیرِ همین فیلد بازاستفاده می‌شود — بدون هیچ منطقِ
+  // جست‌وجوی موازی/تکراری. کدِ کالا هرگز اینجا خوانده نمی‌شود؛ همیشه سمتِ سرور از روی «موجودی»
+  // محاسبه می‌شود (lb_recalcProductLookups_)، دقیقاً مثلِ قبل.
   if (col.type === 'نام_کالا_لوکاپ') {
-    var dlId = 'iqdl_' + safeIdClient_(col.colId);
-    return '<input type="text" list="' + dlId + '" autocomplete="off" placeholder="نام کالا را تایپ یا انتخاب کنید"' + common + '>' +
-      '<datalist id="' + dlId + '">' + (incomingQcData_.productNames || []).map(function (n) { return '<option value="' + escapeHtml(n) + '">'; }).join('') + '</datalist>';
+    var boxId = 'iqSearchBox_' + safeIdClient_(col.colId);
+    return '<div class="iq-product-search-wrap">' +
+        '<input type="text" autocomplete="off" placeholder="نام کالا را تایپ کنید تا جست‌وجو شود..."' +
+          ' oninput="iqProductSearchInput_(this)" onfocus="iqProductSearchInput_(this)"' + common + '>' +
+        '<div class="iq-search-dropdown" id="' + boxId + '" style="display:none;"></div>' +
+      '</div>';
   }
   return '<input type="text"' + common + ' placeholder="' + escapeHtml(col.hint || '') + '">';
 }
 function safeIdClient_(s) { return String(s || '').replace(/[^a-zA-Z0-9_]/g, '_'); }
+
+// >>> افزوده شد: جست‌وجوی زنده‌ی «نام کالا» داخلِ فرمِ ثبتِ کالای ورودی — دقیقاً همان منبعِ
+// داده‌ای که جست‌وجوی اصلیِ اپ (doSearch/searchOfflineIndex) استفاده می‌کند (apiSearch آنلاین،
+// و در نبودِ اینترنت یا خطا، همان کشِ offline_items_index)؛ بدون هیچ درخواست/منطقِ موازیِ جدید.
+var iqSearchDebounce_ = {};
+function fetchProductMatches_(q) {
+  q = normalizePersianDigits(String(q || '').trim());
+  if (!q) return Promise.resolve([]);
+  if (!isOnline()) return fetchProductMatchesOffline_(q);
+  return apiCall('apiSearch', { token: state.token, q: q }).then(function (res) {
+    if (res && res.success) return (res.results || []).slice(0, 8);
+    return fetchProductMatchesOffline_(q);
+  }).catch(function () { return fetchProductMatchesOffline_(q); });
+}
+function fetchProductMatchesOffline_(q) {
+  return SyncDB.cacheGet('offline_items_index').then(function (rec) {
+    var items = (rec && rec.value) ? rec.value : [];
+    var qNorm = q.toLowerCase();
+    return items.filter(function (it) {
+      return (it.code && String(it.code).toLowerCase().indexOf(qNorm) !== -1) ||
+             (it.name && String(it.name).toLowerCase().indexOf(qNorm) !== -1);
+    }).slice(0, 8).map(function (it) { return { code: it.code, name: it.name, qty: it.systemQty }; });
+  }).catch(function () { return []; });
+}
+function iqProductSearchInput_(inputEl) {
+  var colId = inputEl.getAttribute('data-colid');
+  var q = inputEl.value;
+  var box = document.getElementById('iqSearchBox_' + safeIdClient_(colId));
+  if (!box) return;
+  clearTimeout(iqSearchDebounce_[colId]);
+  if (!q || q.trim().length < 2) { box.innerHTML = ''; box.style.display = 'none'; return; }
+  iqSearchDebounce_[colId] = setTimeout(function () {
+    box.innerHTML = '<div class="empty-hint" style="padding:8px;">در حال جست‌وجو...</div>';
+    box.style.display = 'block';
+    fetchProductMatches_(q).then(function (results) {
+      renderIqProductSearchResults_(box, results, colId);
+    });
+  }, 300);
+}
+function renderIqProductSearchResults_(box, results, colId) {
+  var html = '';
+  if (results && results.length) {
+    html += '<div class="iq-search-results">' + results.map(function (r) {
+      var safeName = escapeHtml(r.name || '').replace(/'/g, "\\'");
+      var safeCode = escapeHtml(String(r.code || '')).replace(/'/g, "\\'");
+      return '<div class="iq-search-row">' +
+          '<div class="iq-search-info" onclick="iqSelectProduct_(\'' + escapeHtml(colId).replace(/'/g, "\\'") + '\',\'' + safeName + '\')">' +
+            '<div class="iq-search-name">' + escapeHtml(r.name || '(بدون نام)') + '</div>' +
+            '<div class="iq-search-sub">کد: ' + escapeHtml(r.code || '—') + (r.qty !== undefined && r.qty !== '' && r.qty != null ? ' · موجودی: ' + escapeHtml(String(r.qty)) : '') + '</div>' +
+          '</div>' +
+          '<button type="button" class="iq-search-select-btn" onclick="iqSelectProduct_(\'' + escapeHtml(colId).replace(/'/g, "\\'") + '\',\'' + safeName + '\')">انتخاب</button>' +
+          '<button type="button" class="iq-search-view-btn" onclick="viewItemFromIncomingQcSearch(\'' + safeCode + '\')">مشاهده</button>' +
+        '</div>';
+    }).join('') + '</div>';
+  } else {
+    html += '<div class="empty-hint" style="padding:8px 4px;">کالایی با این نام پیدا نشد.</div>';
+  }
+  html += '<button type="button" class="iq-search-new-btn" onclick="iqConfirmNewProduct_(\'' + escapeHtml(colId).replace(/'/g, "\\'") + '\')">+ کالای جدید (ثبتِ نامِ واردشده به‌عنوانِ کالای جدید)</button>';
+  box.innerHTML = html;
+  box.style.display = 'block';
+}
+function iqSelectProduct_(colId, name) {
+  var input = document.querySelector('.iq-f[data-colid="' + colId + '"]');
+  if (input) input.value = name;
+  var box = document.getElementById('iqSearchBox_' + safeIdClient_(colId));
+  if (box) { box.innerHTML = ''; box.style.display = 'none'; }
+}
+function iqConfirmNewProduct_(colId) {
+  var box = document.getElementById('iqSearchBox_' + safeIdClient_(colId));
+  if (box) { box.innerHTML = ''; box.style.display = 'none'; }
+  showToast('به‌عنوان کالای جدید ثبت می‌شود (کد کالا: ندارد)', false);
+}
+// >>> افزوده شد: بازکردنِ جزئیاتِ کاملِ کالا از داخلِ نتایجِ جست‌وجوی فرمِ کالای ورودی، با
+// دکمه‌ی «بازگشت به لیست» که دقیقاً به همین صفحه (لیست/فرمِ کالای ورودی) برمی‌گردد — از همان
+// تابعِ موجودِ openItemDetail استفاده می‌شود، بدون هیچ منطقِ نمایشِ جزئیاتِ موازی/تکراری.
+function viewItemFromIncomingQcSearch(code) {
+  showScreen('mainScreen');
+  setActiveNav('search');
+  openItemDetail(code, 'incomingQc');
+}
+function backToIncomingQcFromDetail_() {
+  currentDetail = null;
+  showScreen('incomingQcScreen');
+  setActiveNav('incomingQc');
+  renderIncomingQcList_(incomingQcData_, !!incomingQcData_.__offline);
+}
+// <<< پایان بخش افزوده‌شده
 
 function incomingQcFormHtml_() {
   if (!incomingQcData_.perms.create) return '';
@@ -437,12 +539,44 @@ function incomingQcFormHtml_() {
     '<div style="padding:10px 14px;">' +
       '<div class="iq-form-grid">' + fields + '</div>' +
       '<div id="iqFormMsg"></div>' +
-      '<button type="button" class="btn btn-primary" style="margin-top:8px;" onclick="submitIncomingQcRecord_()">ثبت</button>' +
+      '<button type="button" class="btn btn-primary" id="iqSubmitBtn" style="margin-top:8px;" onclick="submitIncomingQcRecord_()">ثبت</button>' +
     '</div>' +
   '</details>';
 }
 
+// >>> افزوده شد: صفِ آفلاینِ رکوردهای «کالای ورودی» — از همان زیرساختِ صفِ همگام‌سازیِ موجود
+// (SyncDB queue store) استفاده می‌کند، فقط با نوعِ عملیاتِ جدیدِ 'lbCreateRecord' که در
+// syncNow()/syncIncomingQcQueue_ جداگانه (چون apiBatchSync سمتِ سرور این نوع را نمی‌شناسد و
+// تغییرِ Code.gs مجاز نیست) و یکی‌یکی به سرور ارسال می‌شود.
+function queueIncomingQcRecord_(data) {
+  var clientOpId = genUuid();
+  var op = { clientOpId: clientOpId, type: 'lbCreateRecord', listId: INCOMING_QC_LIST_ID, data: data, ts: Date.now(), retryCount: 0 };
+  return SyncDB.enqueue(op).then(function () {
+    showToast('ذخیره شد؛ پس از اتصال اینترنت ارسال می‌شود', false);
+    refreshPendingCount();
+    renderIncomingQcList_(incomingQcData_, !!incomingQcData_.__offline);
+  }).catch(function (err) {
+    showToast('ذخیره‌ی محلی ناموفق بود: ' + err.message, true);
+  });
+}
+// <<< پایان بخش افزوده‌شده
+
+// >>> اصلاح شد: علتِ ریشه‌ایِ «خطای ارتباط با سرور + بعداً چند رکوردِ تکراری» اینجا بود:
+// ۱) هیچ قفلی روی دکمه‌ی «ثبت» نبود، پس چند تپ سریع (یا صبرکردنِ کاربر و زدنِ دوباره در
+//    زمانِ سردشدنِ Apps Script) چند درخواستِ مستقلِ apiLbCreateRecord می‌ساخت.
+// ۲) تایم‌اوتِ عمومیِ apiCall (۱۵ ثانیه) برای این درخواست کوتاه بود؛ چون این یک درخواستِ GET
+//    است، رسیدنِ تایم‌اوت به این معنا نیست که سرور درخواست را دریافت نکرده — فقط پاسخ دیر
+//    می‌رسد و کلاینت زودتر از موعد «خطا» نشان می‌داد و کاربر را به ثبتِ دوباره ترغیب می‌کرد.
+// ۳) apiLbCreateRecord هیچ clientOpId/idempotency سمتِ سرور ندارد (برخلافِ apiRecordCount و..)
+//    و چون تغییرِ Code.gs مجاز نیست، این نمی‌تواند اینجا اضافه شود.
+// راه‌حل (کاملاً سمتِ کلاینت): قفلِ صریح در حینِ درخواست (iqSubmitInFlight_ + غیرفعال‌کردنِ
+// دکمه)، تایم‌اوتِ طولانی‌ترِ اختصاصی (۳۰ ثانیه)، و در صورتِ خطا/تایم‌اوت، بلافاصله فهرست از
+// سرور بازخوانی می‌شود تا اگر رکورد واقعاً ساخته شده باشد، پیش از هر تلاشِ دوباره‌ی کاربر دیده
+// شود (به‌جای اجازه‌دادن به ثبتِ کورکورانه‌ی دوباره). موفقیت («ثبت شد») فقط پس از پاسخِ واقعیِ
+// success:true نشان داده می‌شود؛ این رفتار از قبل درست بود و دست‌نخورده مانده است.
+var iqSubmitInFlight_ = false;
 function submitIncomingQcRecord_() {
+  if (iqSubmitInFlight_) return; // جلوگیریِ صریح از فراخوانیِ هم‌زمان/تکراری
   var cols = incomingQcEditableCols_();
   var data = {};
   var missing = null;
@@ -455,21 +589,43 @@ function submitIncomingQcRecord_() {
   });
   var msgBox = document.getElementById('iqFormMsg');
   if (missing) { msgBox.innerHTML = '<div class="msg err">فیلد «' + escapeHtml(missing) + '» الزامی است.</div>'; return; }
-  if (!isOnline()) { msgBox.innerHTML = '<div class="msg err">برای ثبت به اتصال اینترنت نیاز است.</div>'; return; }
+
+  if (!isOnline()) {
+    queueIncomingQcRecord_(data);
+    return;
+  }
+
+  var btn = document.getElementById('iqSubmitBtn');
+  iqSubmitInFlight_ = true;
+  if (btn) { btn.disabled = true; btn.textContent = 'در حال ثبت...'; }
   msgBox.innerHTML = '<div class="empty-hint">در حال ثبت...</div>';
-  apiCall('apiLbCreateRecord', { token: state.token, listId: INCOMING_QC_LIST_ID, dataJson: JSON.stringify(data) }).then(function (res) {
+
+  apiCall('apiLbCreateRecord', { token: state.token, listId: INCOMING_QC_LIST_ID, dataJson: JSON.stringify(data) }, 30000).then(function (res) {
+    iqSubmitInFlight_ = false;
     if (handleIfSessionExpired(res)) return;
-    if (!res.success) { msgBox.innerHTML = '<div class="msg err">خطا: ' + escapeHtml(res.message || '') + '</div>'; return; }
+    if (!res.success) {
+      if (btn) { btn.disabled = false; btn.textContent = 'ثبت'; }
+      msgBox.innerHTML = '<div class="msg err">خطا: ' + escapeHtml(res.message || '') + '</div>';
+      return;
+    }
     showToast('با موفقیت ثبت شد', false);
     navGoIncomingQc(); // بازخوانیِ فهرست تا رکوردِ تازه هم دیده شود
   }).catch(function (err) {
-    msgBox.innerHTML = '<div class="msg err">خطا: ' + escapeHtml(err.message) + '</div>';
+    iqSubmitInFlight_ = false;
+    showToast('خطا در ارتباط با سرور — در حال بررسیِ فهرست برای جلوگیری از ثبتِ تکراری...', true);
+    // فهرست را از سرور بازخوانی کن: اگر رکورد واقعاً سمتِ سرور ساخته شده باشد (فقط پاسخ به
+    // کلاینت نرسیده)، پیش از هر تلاشِ دوباره‌ی کاربر در همین فهرست دیده می‌شود.
+    navGoIncomingQc();
   });
 }
 
 // ---- جدولِ رکوردها (همان الگوی جدولِ «لیست قفسه‌ها»: فیلترِ لحظه‌ای، بدون رفرش صفحه) ----
+// >>> افزوده شد: incomingQcDisplayRecords_ = رکوردهای سرور + رکوردهای «در انتظار ارسال»یِ
+// ذخیره‌شده‌ی آفلاین (از همان صفِ SyncDB) — تا کاربر بلافاصله ببیند که ثبتِ آفلاینش «گم» نشده.
+var incomingQcDisplayRecords_ = [];
 function renderIncomingQcList_(res, isOffline) {
   incomingQcData_ = res;
+  incomingQcData_.__offline = !!isOffline;
   var area = document.getElementById('incomingQcArea');
   var visibleCols = (res.columns || []).filter(function (c) { return !c.hiddenInTable; });
 
@@ -489,9 +645,25 @@ function renderIncomingQcList_(res, isOffline) {
       }
       return '<th class="shelf-th">' + escapeHtml(c.name) + '<br><input class="shelf-filter-input" id="iqflt_' + i + '" oninput="applyIncomingQcFilter_()" placeholder="جست‌وجو..."></th>';
     }).join('') +
-  '</tr></thead><tbody id="iqTableBody">' + buildIncomingQcRowsHtml_(res.records || [], visibleCols) + '</tbody></table></div>';
+  '</tr></thead><tbody id="iqTableBody">در حال بارگذاری...</tbody></table></div>';
 
   area.innerHTML = html;
+
+  // >>> افزوده شد: افزودنِ رکوردهای «در انتظار ارسال» از صفِ محلی، بالای فهرست (نشانه‌ی ⏳)
+  SyncDB.listQueue().then(function (queueItems) {
+    var pending = (queueItems || []).filter(function (it) { return it.type === 'lbCreateRecord' && it.listId === INCOMING_QC_LIST_ID; })
+      .map(function (it) { return { id: 'pending_' + it.clientOpId, data: it.data, pending: true }; });
+    incomingQcDisplayRecords_ = pending.concat(res.records || []);
+    var body = document.getElementById('iqTableBody');
+    if (body) body.innerHTML = buildIncomingQcRowsHtml_(incomingQcDisplayRecords_, visibleCols);
+    var lbl = document.getElementById('iqCountLabel');
+    if (lbl) lbl.textContent = incomingQcDisplayRecords_.length;
+  }).catch(function () {
+    incomingQcDisplayRecords_ = res.records || [];
+    var body = document.getElementById('iqTableBody');
+    if (body) body.innerHTML = buildIncomingQcRowsHtml_(incomingQcDisplayRecords_, visibleCols);
+  });
+  // <<< پایان بخش افزوده‌شده
 }
 
 function incomingQcCellText_(val, col) {
@@ -503,19 +675,23 @@ function incomingQcCellText_(val, col) {
 function buildIncomingQcRowsHtml_(records, visibleCols) {
   if (!records.length) return '<tr><td colspan="' + visibleCols.length + '"><div class="empty-hint">موردی یافت نشد.</div></td></tr>';
   return records.map(function (r) {
-    return '<tr>' + visibleCols.map(function (c) { return '<td>' + escapeHtml(incomingQcCellText_(r.data[c.colId], c)) + '</td>'; }).join('') + '</tr>';
+    return '<tr' + (r.pending ? ' class="iq-row-pending"' : '') + '>' + visibleCols.map(function (c, i) {
+      var txt = escapeHtml(incomingQcCellText_(r.data[c.colId], c));
+      if (i === 0 && r.pending) txt = '⏳ ' + txt;
+      return '<td>' + txt + '</td>';
+    }).join('') + '</tr>';
   }).join('');
 }
 
-// فیلترِ لحظه‌ای — روی همان آرایه‌ی موجود در حافظه (incomingQcData_.records)، بدون درخواستِ
-// جدید به سرور و بدون رفرشِ صفحه؛ دقیقاً مثلِ applyShelvesFilter_.
+// فیلترِ لحظه‌ای — روی همان آرایه‌ی موجود در حافظه (incomingQcDisplayRecords_، شاملِ رکوردهای
+// «در انتظار ارسال»)، بدون درخواستِ جدید به سرور و بدون رفرشِ صفحه؛ دقیقاً مثلِ applyShelvesFilter_.
 function applyIncomingQcFilter_() {
   var visibleCols = (incomingQcData_.columns || []).filter(function (c) { return !c.hiddenInTable; });
   var filters = visibleCols.map(function (c, i) {
     var el = document.getElementById('iqflt_' + i);
     return el ? el.value.trim().toLowerCase() : '';
   });
-  var filtered = (incomingQcData_.records || []).filter(function (r) {
+  var filtered = (incomingQcDisplayRecords_ || []).filter(function (r) {
     return visibleCols.every(function (c, i) {
       if (!filters[i]) return true;
       return incomingQcCellText_(r.data[c.colId], c).toLowerCase().indexOf(filters[i]) !== -1;
@@ -524,7 +700,7 @@ function applyIncomingQcFilter_() {
   var body = document.getElementById('iqTableBody');
   if (body) body.innerHTML = buildIncomingQcRowsHtml_(filtered, visibleCols);
   var lbl = document.getElementById('iqCountLabel');
-  if (lbl) lbl.textContent = filtered.length + (filtered.length !== (incomingQcData_.records || []).length ? ' از ' + incomingQcData_.records.length : '');
+  if (lbl) lbl.textContent = filtered.length + (filtered.length !== (incomingQcDisplayRecords_ || []).length ? ' از ' + incomingQcDisplayRecords_.length : '');
 }
 // <<< پایان بخش اصلاح‌شده
 
@@ -557,6 +733,19 @@ function refreshOfflineCache() {
       });
     }
     // <<< پایان بخش افزوده‌شده
+
+    // >>> افزوده شد: کش کاملِ «لیست کالاهای ورودی» (تعریف/ستون‌ها/نوع‌ها/گزینه‌ها/مجوزها/
+    // نام‌های کالا/واحدها/کاربران + همه‌ی رکوردهای موجود) به‌طور خودکار همراه با هر Sync، نه فقط
+    // وقتی کاربر خودش صفحه‌ی «کالاهای ورودی» را باز می‌کند — تا این بخش بدون نیاز به بازدیدِ
+    // قبلی، کاملاً آفلاین در دسترس باشد. خطای این تماس (مثلاً کاربری که به این لیست دسترسی
+    // «مشاهده» ندارد) نباید کل Sync را متوقف کند، پس جداگانه بلعیده می‌شود.
+    tasks.push(
+      apiCall('apiLbGetListData', { token: state.token, listId: INCOMING_QC_LIST_ID }).then(function (lbRes) {
+        if (lbRes && lbRes.success) return SyncDB.cacheSet('incoming_qc_data', lbRes, 24 * 60 * 60 * 1000);
+      }).catch(function () { /* اختیاری؛ نبودِ دسترسی یا خطای موقت نادیده گرفته می‌شود */ })
+    );
+    // <<< پایان بخش افزوده‌شده
+
     return Promise.all(tasks).then(function () {
       if (res.serverTime) localStorage.setItem(LS_LAST_SYNC, res.serverTime);
       localStorage.setItem(LS_LAST_SYNC_OK, '1'); // >>> افزوده شد: آخرین تلاش موفق بود
@@ -615,20 +804,35 @@ function syncNow(manual) {
     downloadErr = err;
   }).then(function () {
     return SyncDB.listQueue();
-  }).then(function (items) {
+  }).then(function (allItems) {
     // <<< پایان بخش افزوده‌شده
+
+    // >>> افزوده شد: عملیات‌های نوع 'lbCreateRecord' (رکوردهای «کالای ورودی» ثبت‌شده در حالتِ
+    // آفلاین) با apiBatchSync سازگار نیستند (سرور این نوع را نمی‌شناسد و تغییرِ Code.gs مجاز
+    // نیست)؛ این‌ها را جدا کرده و یکی‌یکی (نه هم‌زمان) با apiLbCreateRecord ارسال می‌کنیم تا
+    // هرگز دو درخواستِ هم‌زمان برای رکوردهای مشابه ساخته نشود.
+    var lbItems = allItems.filter(function (it) { return it.type === 'lbCreateRecord'; });
+    var items = allItems.filter(function (it) { return it.type !== 'lbCreateRecord'; });
+    var lbSyncPromise = syncIncomingQcQueue_(lbItems).then(function (r) {
+      if (r.okCount) { refreshPendingCount(); maybeRefreshIncomingQcView_(); }
+      return r;
+    });
+    // <<< پایان بخش افزوده‌شده
+
     if (!items.length) {
-      syncState.syncing = false;
-      refreshPendingCount();
-      // >>> افزوده شد: پیام نهایی برای sync دستی، شامل نتیجه‌ی واقعیِ دانلود هم می‌شود
-      if (manual) {
-        if (downloadOk) showToast('✓ داده‌ی محلی به‌روز شد (' + downloadCount + ' کالا) — چیزی برای ارسال نبود');
-        else if (downloadOk === false) showToast('خطا در دریافت داده‌ی کامل: ' + (downloadErr ? downloadErr.message : ''), true);
-        else showToast('چیزی برای همگام‌سازی نیست');
-      }
-      // <<< پایان بخش افزوده‌شده
-      renderSyncBar();
-      return;
+      return lbSyncPromise.then(function (lbRes) {
+        syncState.syncing = false;
+        refreshPendingCount();
+        // >>> افزوده شد: پیام نهایی برای sync دستی، شامل نتیجه‌ی واقعیِ دانلود و ارسالِ کالاهای ورودی هم می‌شود
+        if (manual) {
+          var lbMsg0 = lbRes.okCount ? (lbRes.okCount + ' مورد کالای ورودی ارسال شد' + (lbRes.failCount ? (' — ' + lbRes.failCount + ' ناموفق') : '')) : '';
+          if (downloadOk) showToast('✓ داده‌ی محلی به‌روز شد (' + downloadCount + ' کالا)' + (lbMsg0 ? ' — ' + lbMsg0 : ' — چیزی برای ارسال نبود'));
+          else if (downloadOk === false) showToast('خطا در دریافت داده‌ی کامل: ' + (downloadErr ? downloadErr.message : ''), true);
+          else showToast(lbMsg0 || 'چیزی برای همگام‌سازی نیست');
+        }
+        // <<< پایان بخش افزوده‌شده
+        renderSyncBar();
+      });
     }
 
     var batch = items.slice(0, MAX_SYNC_BATCH_SIZE);
@@ -641,7 +845,7 @@ function syncNow(manual) {
       };
     });
 
-    apiCall('apiBatchSync', { token: state.token, ops: JSON.stringify(ops) }).then(function (res) {
+    return apiCall('apiBatchSync', { token: state.token, ops: JSON.stringify(ops) }).then(function (res) {
       syncState.syncing = false;
       if (handleIfSessionExpired(res)) { renderSyncBar(); return; }
       if (!res.success) {
@@ -674,20 +878,25 @@ function syncNow(manual) {
           return SyncDB.updateQueueItem(original);
         });
       });
-      chain.then(function () {
+      return chain.then(function () { return lbSyncPromise; }).then(function (lbRes) {
         if (res.serverTime) localStorage.setItem(LS_LAST_SYNC, res.serverTime);
         refreshPendingCount();
-        // >>> افزوده شد: پیام نهایی حالا هم نتیجه‌ی دانلود و هم نتیجه‌ی ارسال صف را نشان می‌دهد
+        // >>> افزوده شد: پیام نهایی حالا هم نتیجه‌ی دانلود، هم ارسالِ صفِ شمارش/قفسه، و هم ارسالِ صفِ کالاهای ورودی را نشان می‌دهد
         var uploadMsg = okCount ? (okCount + ' مورد ارسال شد' + (failCount ? (' — ' + failCount + ' ناموفق') : '')) : (failCount ? 'ارسال ناموفق بود؛ دوباره تلاش می‌شود' : '');
+        var lbMsg = lbRes.okCount ? (lbRes.okCount + ' کالای ورودی ارسال شد' + (lbRes.failCount ? (' — ' + lbRes.failCount + ' ناموفق') : '')) : '';
+        var uploadFull = [uploadMsg, lbMsg].filter(Boolean).join(' — ');
+        var anyFail = failCount || lbRes.failCount;
+        var anyOk = okCount || lbRes.okCount;
         if (manual) {
           var dlMsg = downloadOk ? ('داده‌ی محلی به‌روز شد (' + downloadCount + ' کالا)') : (downloadOk === false ? 'دریافت داده‌ی کامل ناموفق بود' : '');
-          var full = [dlMsg, uploadMsg].filter(Boolean).join(' — ');
-          showToast((failCount || downloadOk === false ? '' : '✓ ') + (full || 'همگام‌سازی انجام شد'), !!(failCount || downloadOk === false));
-        } else if (okCount || failCount) {
-          showToast((okCount ? '✓ ' : '') + uploadMsg, !!failCount && !okCount);
+          var full = [dlMsg, uploadFull].filter(Boolean).join(' — ');
+          showToast((anyFail || downloadOk === false ? '' : '✓ ') + (full || 'همگام‌سازی انجام شد'), !!(anyFail || downloadOk === false));
+        } else if (anyOk || anyFail) {
+          showToast((anyOk ? '✓ ' : '') + uploadFull, !!anyFail && !anyOk);
         }
         // <<< پایان بخش افزوده‌شده
         maybeRefreshRecentView();
+        maybeRefreshIncomingQcView_();
         if (items.length > batch.length && isOnline()) setTimeout(function () { syncNow(false); }, 400);
       });
     }).catch(function (err) {
@@ -698,14 +907,61 @@ function syncNow(manual) {
       if (isOnline()) {
         showToast('خطا در همگام‌سازی: ' + err.message, true);
       }
+      return lbSyncPromise;
     });
   }).catch(function () { syncState.syncing = false; renderSyncBar(); });
 }
+
+// >>> افزوده شد: ارسالِ یکی‌یکیِ صفِ آفلاینِ رکوردهای «کالای ورودی» — عمداً ترتیبی (نه Promise.all)
+// تا هرگز دو درخواستِ هم‌زمان برای این نوع عملیات ساخته نشود؛ موفقیت فقط با حذفِ واقعیِ آیتم از
+// صف (پس از پاسخِ success:true) اعلام می‌شود، دقیقاً مثلِ منطقِ موجودِ apiBatchSync برای انواعِ دیگر.
+function syncIncomingQcQueue_(lbItems) {
+  if (!lbItems || !lbItems.length) return Promise.resolve({ okCount: 0, failCount: 0 });
+  var okCount = 0, failCount = 0;
+  var chain = Promise.resolve();
+  lbItems.forEach(function (op) {
+    chain = chain.then(function () {
+      return apiCall('apiLbCreateRecord', { token: state.token, listId: op.listId, dataJson: JSON.stringify(op.data) }, 30000).then(function (res) {
+        if (handleIfSessionExpired(res)) { failCount++; return; }
+        if (res && res.success) {
+          okCount++;
+          return SyncDB.removeFromQueue(op.clientOpId);
+        }
+        failCount++;
+        op.retryCount = (op.retryCount || 0) + 1;
+        op.lastError = (res && res.message) || '';
+        if (op.retryCount >= MAX_SYNC_RETRY) op.failed = true;
+        return SyncDB.updateQueueItem(op);
+      }).catch(function (err) {
+        failCount++;
+        op.retryCount = (op.retryCount || 0) + 1;
+        op.lastError = err.message || '';
+        if (op.retryCount >= MAX_SYNC_RETRY) op.failed = true;
+        return SyncDB.updateQueueItem(op);
+      });
+    });
+  });
+  return chain.then(function () { return { okCount: okCount, failCount: failCount }; });
+}
+
+// >>> افزوده شد: فقط وقتی صفحه‌ی «کالاهای ورودی» باز است، پس از همگام‌سازی دوباره رندر می‌شود
+// تا نشانِ «⏳ در انتظار ارسال» به‌محضِ ارسالِ موفق پاک شود — دقیقاً مثلِ maybeRefreshRecentView.
+function maybeRefreshIncomingQcView_() {
+  var scr = document.getElementById('incomingQcScreen');
+  if (scr && scr.classList.contains('active') && incomingQcData_ && incomingQcData_.columns) {
+    renderIncomingQcList_(incomingQcData_, !!incomingQcData_.__offline);
+  }
+}
+// <<< پایان بخش افزوده‌شده
 // ===================== پایان بخش همگام‌سازی آفلاین =====================
 
 // ===================== ارتباط با سرور (JSONP - بدون نیاز به CORS) =====================
 var jsonpCounter = 0;
-function apiCall(action, params) {
+// >>> اصلاح شد: پارامتر سومِ اختیاری timeoutMs افزوده شد — پیش‌فرض دقیقاً همان ۱۵۰۰۰ قبلی
+// (هیچ فراخوانیِ موجودی که این پارامتر را نمی‌دهد رفتارش تغییر نمی‌کند). فقط برای درخواست‌های
+// سنگین‌تر (مثلاً ثبتِ رکوردِ لیست‌ساز که ممکن است با سردشدنِ Apps Script کندتر پاسخ دهد) از
+// یک تایم‌اوتِ طولانی‌تر استفاده می‌شود تا خطای نادرستِ «سرور پاسخ نداد» کمتر رخ دهد.
+function apiCall(action, params, timeoutMs) {
   return new Promise(function (resolve, reject) {
     // >>> اصلاح شد: قبلاً فقط کپیِ حافظه‌ای state.serverUrl بررسی می‌شد. اگر به هر دلیلی (مثلاً
     // در برخی مرورگرها/حالت PWA نصب‌شده روی گوشی) این کپی در حافظه خالی بماند درحالی‌که خودِ
@@ -730,7 +986,8 @@ function apiCall(action, params) {
       settled = true;
       cleanup();
       reject(new Error('سرور در زمان مناسب پاسخ نداد. اتصال اینترنت را بررسی کنید.'));
-    }, 15000);
+    }, timeoutMs || 15000);
+    // <<< پایان بخش اصلاح‌شده
 
     function cleanup() {
       clearTimeout(timeout);
@@ -1428,12 +1685,18 @@ function detailBackLinkHtml_() {
   if (itemDetailBackTarget === 'remaining') {
     return '<button class="back-link" onclick="backToRemainingList_()">‹ بازگشت به لیست</button>';
   }
+  // >>> افزوده شد: بازگشت به فرم/فهرستِ «کالاهای ورودی» — وقتی جزئیاتِ کالا از داخلِ جست‌وجوی
+  // فرمِ ثبتِ کالای ورودی باز شده باشد
+  if (itemDetailBackTarget === 'incomingQc') {
+    return '<button class="back-link" onclick="backToIncomingQcFromDetail_()">‹ بازگشت به لیست</button>';
+  }
+  // <<< پایان بخش افزوده‌شده
   return '<button class="back-link" onclick="backToSearch()">‹ بازگشت به جست‌وجو</button>';
 }
 // <<< پایان بخش افزوده‌شده
 
 function openItemDetail(code, backTarget) {
-  itemDetailBackTarget = (backTarget === 'remaining') ? 'remaining' : 'search';
+  itemDetailBackTarget = (backTarget === 'remaining') ? 'remaining' : (backTarget === 'incomingQc' ? 'incomingQc' : 'search');
   var area = document.getElementById('resultArea');
 
   // >>> افزوده شد: اگر اینترنت قطع است، مستقیم از کش آفلاین بخوان (بدون تلاش برای apiCall)
