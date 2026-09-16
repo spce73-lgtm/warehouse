@@ -127,6 +127,33 @@ h1,h2,h3,h4,h5,h6,
 .iq-card summary::-webkit-details-marker{display:none;}
 /* <<< پایان بخش اصلاح‌شده */
 /* <<< پایان بخش بازطراحی‌شده */
+
+/* >>> افزوده شد: جست‌وجوی زنده‌ی «نام کالا» داخلِ فرمِ ثبتِ کالای ورودی (بازاستفاده از حس‌وحالِ
+   نتایجِ جست‌وجوی اصلیِ اپ، نه یک <datalist> ساده) + نشانه‌ی ردیفِ «در انتظار ارسال» در جدول */
+.iq-product-search-wrap{position:relative;}
+.iq-search-dropdown{
+  position:absolute;top:calc(100% + 4px);right:0;left:0;z-index:30;
+  background:#fff;border:1px solid var(--border-strong);border-radius:var(--r-md);
+  box-shadow:var(--shadow-md);max-height:280px;overflow-y:auto;
+}
+.iq-search-results{display:flex;flex-direction:column;}
+.iq-search-row{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid var(--border);}
+.iq-search-row:last-child{border-bottom:none;}
+.iq-search-info{flex:1;min-width:0;cursor:pointer;}
+.iq-search-name{font-size:12.5px;font-weight:700;color:var(--text);}
+.iq-search-sub{font-size:10.5px;color:var(--muted);margin-top:2px;}
+.iq-search-select-btn,.iq-search-view-btn{
+  flex-shrink:0;border:1px solid var(--border-strong);border-radius:7px;background:var(--surface);
+  color:var(--text-soft);font-size:11px;font-weight:700;padding:5px 8px;cursor:pointer;font-family:inherit;
+}
+.iq-search-select-btn{background:var(--accent-light);color:var(--accent-dark);border-color:var(--accent);}
+.iq-search-new-btn{
+  display:block;width:100%;text-align:center;background:var(--warn-light);color:var(--warn);
+  border:none;border-top:1px solid var(--border);padding:9px 10px;font-size:11.5px;font-weight:700;
+  cursor:pointer;font-family:inherit;
+}
+.iq-row-pending td{background:var(--warn-light) !important;}
+/* <<< پایان بخش افزوده‌شده */
 .screen.active{display:flex;animation:screenIn var(--dur) var(--ease);}
 @keyframes screenIn{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
 
@@ -412,6 +439,9 @@ h1,h2,h3,h4,h5,h6,
 .header-sync-dot{position:absolute;top:5px;left:5px;width:8px;height:8px;border-radius:50%;background:#3ddc84;border:1.5px solid var(--accent-dark);}
 .header-sync-text{display:flex;flex-direction:column;align-items:flex-start;line-height:1.3;min-width:0;}
 .header-sync-text b{font-size:11.5px;font-weight:800;white-space:nowrap;}
+/* >>> افزوده شد: تعدادِ موارد در انتظار همگام‌سازی، کنارِ برچسبِ «همگام‌سازی» */
+.header-sync-text b #headerSyncCount{font-weight:800;}
+/* <<< پایان بخش افزوده‌شده */
 .header-sync-text small{font-size:9.5px;opacity:.88;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:118px;}
 .header-title{font-size:14px;font-weight:800;flex:1;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 4px;}
 .header-back-btn{
