@@ -1652,7 +1652,10 @@ function openPublicShelfPreview(code) {
     }
     renderPublicShelfPreview(found);
   }).catch(function (err) {
-    area.innerHTML = '<div class="empty-hint">خطا در بارگذاری فایل قفسه‌ها: ' + escapeHtml(err.message) + '</div>';
+    var notPublished = /404/.test(err.message || '');
+    area.innerHTML = '<div class="empty-hint">' + (notPublished
+      ? 'اطلاعات قفسه‌ها هنوز منتشر نشده است. لطفاً از مدیر سیستم بخواهید همگام‌سازی با گیت‌هاب را انجام دهد.'
+      : 'خطا در بارگذاری فایل قفسه‌ها: ' + escapeHtml(err.message)) + '</div>';
   });
 }
 
