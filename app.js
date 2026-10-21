@@ -81,6 +81,7 @@ var currentDetail = null;      // آخرین کالایی که جزئیاتش ب
 var lastSearchResults = null;  // آخرین نتایج جست‌وجو (برای «بازگشت به جست‌وجو»)
 var lastSearchQuery = '';
 var pendingId = null;          // شناسه‌ای که از لینک کیوآرکد (?id=) آمده و هنوز باز نشده
+var pendingShelf = null;       // >>> افزوده شد: کد قفسه‌ای که از لینک کیوآرکد قفسه (?shelf=) آمده و هنوز باز نشده
 
 // ===================== ابزارهای کمکی =====================
 function escapeHtml(s) {
@@ -117,6 +118,11 @@ function readIdFromLocation() {
   var params = new URLSearchParams(window.location.search);
   return params.get('id');
 }
+// >>> افزوده شد: کد قفسه از لینک QR قفسه (?shelf=A-01-01)
+function readShelfFromLocation() {
+  var params = new URLSearchParams(window.location.search);
+  return params.get('shelf');
+}
 // اگر کسی به‌جای کد خام، یک لینک کامل داخل کادر جست‌وجو پیست کرده بود، کد را از آن دربیاور
 /**
  * تبدیل ارقام فارسی/عربی به انگلیسی (مثلاً «۱۲۳۴» یا «١٢٣٤» به «1234»)
@@ -147,6 +153,7 @@ function clearIdFromUrl() {
   try {
     var url = new URL(window.location.href);
     url.searchParams.delete('id');
+    url.searchParams.delete('shelf'); // >>> افزوده شد
     window.history.replaceState({}, '', url.pathname + (url.search ? url.search : ''));
   } catch (e) {}
 }
@@ -1108,7 +1115,15 @@ function enterApp() {
   if (isOnline()) syncNow();
   // <<< پایان بخش افزوده‌شده
 
-  if (pendingId) {
+  if (pendingShelf && state.warehouseAccess) {
+    // >>> افزوده شد: ورود از QR قفسه — کاربرِ دارای دسترسی انبار مستقیم به همان قفسه می‌رود
+    var shelfToOpen = pendingShelf;
+    pendingShelf = null;
+    clearIdFromUrl();
+    showScreen('shelvesScreen');
+    setActiveNav('shelves');
+    openShelfDetail(shelfToOpen);
+  } else if (pendingId) {
     var idToOpen = pendingId;
     pendingId = null;
     clearIdFromUrl();
@@ -1602,6 +1617,105 @@ function renderPublicItemPreview(item, code) {
     '</div>';
   var loginBtn = document.getElementById('publicItemLoginBtn');
   if (loginBtn) loginBtn.addEventListener('click', function () { goLoginKeepPending(code); });
+}
+
+// >>> افزوده شد: صفحه‌ی عمومی قفسه (اسکن QR قفسه بدون ورود). داده از فایل استاتیک shelves.json
+// روی همین ریپو خوانده می‌شود (مثل items.json برای کالا) — بدون هیچ تماس با گوگل و بدون توکن.
+var shelvesJsonCache = null;
+function loadShelvesJson() {
+  if (shelvesJsonCache) return Promise.resolve(shelvesJsonCache);
+  return fetch('./shelves.json', { cache: 'no-store' }).then(function (resp) {
+    if (!resp.ok) throw new Error('فایل shelves.json پیدا نشد (کد ' + resp.status + ')');
+    return resp.json();
+  }).then(function (data) {
+    shelvesJsonCache = data;
+    SyncDB.cacheSet('shelves_json', data, 24 * 60 * 60 * 1000).catch(function () {});
+    return data;
+  }).catch(function (err) {
+    return SyncDB.cacheGet('shelves_json').then(function (rec) {
+      if (rec && rec.value) { shelvesJsonCache = rec.value; return rec.value; }
+      throw err;
+    });
+  });
+}
+
+function openPublicShelfPreview(code) {
+  showScreen('publicItemScreen');
+  var area = document.getElementById('publicItemArea');
+  area.innerHTML = '<div class="lookup-loading"><div class="spinner"></div> در حال دریافت مشخصات قفسه...</div>';
+  loadShelvesJson().then(function (list) {
+    var want = normalizePersianDigits(String(code).trim()).toLowerCase();
+    var found = list.filter(function (s) { return String(s.code).trim().toLowerCase() === want; })[0];
+    if (!found) {
+      area.innerHTML = '<div class="empty-hint">قفسه‌ای با این کد پیدا نشد.<br>ممکن است فایل قفسه‌ها هنوز به‌روزرسانی نشده باشد.</div>';
+      return;
+    }
+    renderPublicShelfPreview(found);
+  }).catch(function (err) {
+    area.innerHTML = '<div class="empty-hint">خطا در بارگذاری فایل قفسه‌ها: ' + escapeHtml(err.message) + '</div>';
+  });
+}
+
+function renderPublicShelfPreview(shelf) {
+  var area = document.getElementById('publicItemArea');
+  var color = shelfLoadStatusColorClient_(shelf.loadStatus);
+  var html =
+    '<div class="item-detail-card">' +
+      '<div class="item-title">قفسه‌ی ' + escapeHtml(shelf.code) + (shelf.location ? ' — ' + escapeHtml(shelf.location) : '') + '</div>' +
+      '<div class="item-fields">' +
+        '<div class="item-field"><div class="k">حداکثر ظرفیت</div><div class="v">' + (shelf.capacityKg === null || shelf.capacityKg === '' ? '—' : escapeHtml(String(shelf.capacityKg)) + ' kg') + '</div></div>' +
+        '<div class="item-field"><div class="k">بار فعلی</div><div class="v">' + escapeHtml(String(shelf.currentLoad)) + ' kg</div></div>' +
+        '<div class="item-field"><div class="k">ظرفیت باقیمانده</div><div class="v">' + (shelf.remainingCapacity === null ? '—' : escapeHtml(String(shelf.remainingCapacity)) + ' kg') + '</div></div>' +
+        '<div class="item-field"><div class="k">وضعیت بار</div><div class="v" style="color:' + color + ';font-weight:700;">' + escapeHtml(shelf.loadStatus) + '</div></div>' +
+      '</div>' +
+      '<div style="margin:10px 0 16px;">' + shelfUsageBarHtmlClient_(shelf.usagePercent, color) + '</div>' +
+      '<div class="section-title">کالاهای این قفسه (' + (shelf.items || []).length + ')</div>';
+  if (!(shelf.items || []).length) {
+    html += '<div class="empty-hint">کالایی با وزن ثبت‌شده روی این قفسه نیست.</div>';
+  } else {
+    html += '<div class="result-list">';
+    shelf.items.forEach(function (it) {
+      html +=
+        '<div class="result-row" onclick="openPublicItemFromShelf_(\'' + escapeHtml(it.code).replace(/'/g, "\\'") + '\', \'' + escapeHtml(shelf.code).replace(/'/g, "\\'") + '\')">' +
+          '<div class="result-thumb">📦</div>' +
+          '<div class="result-info">' +
+            '<div class="result-name">' + escapeHtml(it.name || '(بدون نام)') + '</div>' +
+            '<div class="result-meta">' +
+              '<span class="code-pill-sm">' + escapeHtml(it.code) + '</span>' +
+              '<span>تعداد: ' + escapeHtml(String(it.qty)) + '</span>' +
+              '<span>وزن واحد: ' + escapeHtml(String(it.unitWeight)) + ' kg</span>' +
+              '<span><b>وزن کل: ' + escapeHtml(String(it.totalWeight)) + ' kg</b></span>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+    });
+    html += '</div>';
+  }
+  html += (shelf.updatedAt ? '<div class="public-login-note">آخرین به‌روزرسانی اطلاعات: ' + escapeHtml(shelf.updatedAt) + '</div>' : '') +
+      '<div class="public-login-note">برای ثبت شمارش یا سایر بخش‌ها، ابتدا وارد سامانه شوید.</div>' +
+      '<button class="btn btn-primary" id="publicShelfLoginBtn">ورود به سامانه</button>' +
+    '</div>';
+  area.innerHTML = html;
+  var b = document.getElementById('publicShelfLoginBtn');
+  if (b) b.addEventListener('click', function () { pendingShelf = shelf.code; showScreen('loginScreen'); });
+}
+
+// از صفحه‌ی عمومی قفسه، روی یک کالا بزن → پیش‌نمایش عمومی همان کالا (بدون ورود) + بازگشت به قفسه
+function openPublicItemFromShelf_(itemCode, shelfCode) {
+  showScreen('publicItemScreen');
+  var area = document.getElementById('publicItemArea');
+  area.innerHTML = '<div class="lookup-loading"><div class="spinner"></div> در حال دریافت مشخصات کالا...</div>';
+  var backHtml = '<button class="back-link" id="publicBackToShelfBtn">‹ بازگشت به قفسه</button>';
+  function wireBack() { var b = document.getElementById('publicBackToShelfBtn'); if (b) b.addEventListener('click', function () { openPublicShelfPreview(shelfCode); }); }
+  loadItemsJson().then(function (items) {
+    var want = normalizePersianDigits(String(itemCode).trim());
+    var found = items.filter(function (it) { return normalizePersianDigits(String(it.code).trim()) === want; })[0];
+    if (!found) { area.innerHTML = backHtml + '<div class="empty-hint">مشخصات عمومی این کالا پیدا نشد.</div>'; wireBack(); return; }
+    renderPublicItemPreview(found, itemCode);
+    area.insertAdjacentHTML('afterbegin', backHtml); wireBack();
+  }).catch(function (err) {
+    area.innerHTML = backHtml + '<div class="empty-hint">خطا: ' + escapeHtml(err.message) + '</div>'; wireBack();
+  });
 }
 
 function goLoginKeepPending(code) {
@@ -2939,6 +3053,7 @@ document.addEventListener('visibilitychange', function () {
 // <<< پایان بخش افزوده‌شده
 
 pendingId = readIdFromLocation();
+pendingShelf = readShelfFromLocation(); // >>> افزوده شد
 
 if (state.serverUrl) {
   var serverInput = document.getElementById('serverUrlInput');
@@ -2947,6 +3062,9 @@ if (state.serverUrl) {
 
 if (state.token && state.username) {
   enterApp();
+} else if (pendingShelf) {
+  // >>> افزوده شد: از QR قفسه آمده و وارد نشده: صفحه‌ی عمومی قفسه (مشخصات + کالاها + وزن بارگذاری‌شده)
+  openPublicShelfPreview(pendingShelf);
 } else if (pendingId) {
   // از کیوآرکد آمده ولی هنوز وارد نشده: پیش‌نمایش کالا (بدون موجودی) نشان داده می‌شود
   openPublicItemPreview(pendingId);
