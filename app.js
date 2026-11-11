@@ -37,13 +37,17 @@ function updateStickyOffsets_() {
 
   var searchRow = document.querySelector('.search-row');
   var searchRowH = (searchRow && searchRow.getClientRects().length) ? searchRow.getBoundingClientRect().height : 0;
-  document.documentElement.style.setProperty('--sticky-after-search-h', (headerH + searchRowH) + 'px');
+  // >>> افزوده شد: نوار باکس‌های فیلتر (بالای نوار جست‌وجو) — ارتفاعش در افست نوار جست‌وجو و عناصر زیرش لحاظ می‌شود
+  var filterBar = document.getElementById('searchFilterBar');
+  var filterH = (filterBar && filterBar.getClientRects().length) ? filterBar.getBoundingClientRect().height : 0;
+  document.documentElement.style.setProperty('--sticky-filter-h', filterH + 'px');
+  document.documentElement.style.setProperty('--sticky-after-search-h', (headerH + filterH + searchRowH) + 'px');
 
   // >>> افزوده شد: اگر دکمه‌ی «کالاهای باقیمانده» نمایش داده می‌شود، ارتفاعش هم برای عنوانِ
   // چسبناک بالای «نتایج جست‌وجو» (که زیر همه‌ی این نوار قرار دارد) لحاظ می‌شود
   var remBtn = document.getElementById('remainingEntryBtn');
   var remBtnH = (remBtn && remBtn.getClientRects().length) ? remBtn.getBoundingClientRect().height : 0;
-  document.documentElement.style.setProperty('--sticky-topbar-h', (headerH + searchRowH + remBtnH) + 'px');
+  document.documentElement.style.setProperty('--sticky-topbar-h', (headerH + filterH + searchRowH + remBtnH) + 'px');
   // <<< پایان بخش افزوده‌شده
 }
 updateStickyOffsets_();
@@ -1166,19 +1170,28 @@ function searchFilterBarHtml_(count) {
     return '<option value="' + escapeHtml(w) + '"' + (w === searchFilters_.warehouse ? ' selected' : '') + '>' + escapeHtml(w) + '</option>';
   }).join('');
   var hidden = lastSearchMeta_.hiddenZero || 0;
-  return '<div class="result-filter-bar result-sticky-title">' +
+  return '<div class="result-filter-inner">' +
     '<button type="button" class="rf-chip rf-toggle' + (searchFilters_.nonzero ? ' on' : '') + '" onclick="toggleSearchNonzero_()" aria-pressed="' + (searchFilters_.nonzero ? 'true' : 'false') + '">' +
       (searchFilters_.nonzero ? '✓ ' : '') + 'موجودی غیرصفر</button>' +
     '<label class="rf-chip rf-select' + (searchFilters_.warehouse ? ' on' : '') + '"><span>انبار:</span><select onchange="onSearchWarehouseChange_(this)">' + opts + '</select></label>' +
     '<span class="rf-chip rf-count" title="' + (hidden ? hidden + ' مورد با موجودی صفر پنهان شده است' : '') + '">' + count + ' نتیجه</span>' +
   '</div>';
 }
+// >>> تغییر یافت: ردیف باکس‌ها اکنون یک نوار ثابتِ جدا (#searchFilterBar) بالای نوار جست‌وجو است (نه داخل فهرست نتایج)،
+// تا هنگام اسکرول همیشه دیده شود.
+function setSearchFilterBar_(html) {
+  var bar = document.getElementById('searchFilterBar');
+  if (!bar) return;
+  if (html) { bar.innerHTML = html; bar.style.display = ''; } else { bar.innerHTML = ''; bar.style.display = 'none'; }
+  updateStickyOffsets_();
+}
 function searchEmptyHtml_(q, offline) {
   var filtered = searchFilters_.nonzero || searchFilters_.warehouse;
   var msg = 'چیزی با «' + escapeHtml(q) + '» ' + (offline ? 'در داده‌ی محلی (آفلاین) ' : '') + 'پیدا نشد.';
-  if (!filtered) return '<div class="empty-hint">' + msg + '</div>';
+  if (!filtered) { setSearchFilterBar_(null); return '<div class="empty-hint">' + msg + '</div>'; }
   var hz = lastSearchMeta_.hiddenZero || 0;
-  return searchFilterBarHtml_(0) + '<div class="empty-hint">' + msg +
+  setSearchFilterBar_(searchFilterBarHtml_(0));
+  return '<div class="empty-hint">' + msg +
     (hz ? '<br>' + hz + ' مورد با موجودی صفر پنهان شده است.' : '') +
     '<br><button type="button" class="btn btn-secondary" style="margin-top:10px;" onclick="showAllSearchResults_()">نمایش همه (بدون فیلتر)</button></div>';
 }
@@ -1309,7 +1322,8 @@ function renderResultsList(results, q) {
   setHeaderTitle('نتایج جست‌وجو');
   var area = document.getElementById('resultArea');
   // >>> تغییر یافت: به‌جای عنوانِ وسط‌چینِ «N نتیجه برای ...»، ردیفِ باکس‌های فیلتر + تعداد نتایج
-  var html = searchFilterBarHtml_(results.length) + '<div class="result-list">';
+  setSearchFilterBar_(searchFilterBarHtml_(results.length));
+  var html = '<div class="result-list">';
   results.forEach(function (r) {
     // >>> افزوده شد: آخرین تاریخ شمارشِ این کالا (فقط تاریخ، بدون ساعت، برای سبک ماندن نتیجه)
     // — از داده‌ی واقعیِ تاریخچه‌ی شمارش (lastCountDate/everCounted، بدون هیچ محدودیت زمانی)
@@ -1892,6 +1906,7 @@ function detailBackLinkHtml_() {
 // <<< پایان بخش افزوده‌شده
 
 function openItemDetail(code, backTarget) {
+  setSearchFilterBar_(null); // نوار فیلتر فقط برای فهرست نتایج جست‌وجو
   itemDetailBackTarget = (backTarget === 'remaining') ? 'remaining' : (backTarget === 'incomingQc' ? 'incomingQc' : 'search');
   var area = document.getElementById('resultArea');
 
@@ -3062,6 +3077,7 @@ function viewItemFromShelf(code) {
 // صفحه‌ی «آماده برای اسکن بعدی» - چون اسکنر داخلی نداریم، همین‌جا راهنمایی می‌کنیم
 // که دوربین گوشی را روی برچسب بعدی بگیرند؛ جست‌وجوی دستی هم همیشه در دسترس است.
 function renderScanNextScreen() {
+  setSearchFilterBar_(null);
   setHeaderTitle('خانه');
   var area = document.getElementById('resultArea');
   area.innerHTML =
@@ -3107,6 +3123,7 @@ function buildRecentListHtml() {
 }
 
 function renderRecentList() {
+  setSearchFilterBar_(null);
   currentDetail = null;
   setHeaderTitle('خانه');
   var area = document.getElementById('resultArea');
