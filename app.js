@@ -1142,7 +1142,49 @@ if (searchInputEl) {
 }
 
 // >>> افزوده شد: جست‌وجوی محلی از کش آفلاین IndexedDB (وقتی اینترنت نیست یا apiSearch شکست بخورد)
-function searchOfflineIndex(q) {
+// >>> افزوده شد: فیلترهای باکسیِ نتایج جست‌وجو (موجودی غیرصفر + کد انبار) — در localStorage ذخیره می‌شوند.
+var LS_SEARCH_FILTERS = 'wh_scanner_search_filters';
+var searchFilters_ = (function () {
+  var f = { nonzero: true, warehouse: '' };
+  try {
+    var raw = localStorage.getItem(LS_SEARCH_FILTERS);
+    if (raw) { var o = JSON.parse(raw); if (o && typeof o === 'object') { f.nonzero = o.nonzero !== false; f.warehouse = String(o.warehouse || ''); } }
+  } catch (e) {}
+  return f;
+})();
+var lastSearchMeta_ = { warehouses: [], hiddenZero: 0 };
+function saveSearchFilters_() { try { localStorage.setItem(LS_SEARCH_FILTERS, JSON.stringify(searchFilters_)); } catch (e) {} }
+function toggleSearchNonzero_() { searchFilters_.nonzero = !searchFilters_.nonzero; saveSearchFilters_(); doSearch(true); }
+function onSearchWarehouseChange_(sel) { searchFilters_.warehouse = sel.value || ''; saveSearchFilters_(); doSearch(true); }
+function showAllSearchResults_() { searchFilters_.nonzero = false; searchFilters_.warehouse = ''; saveSearchFilters_(); doSearch(true); }
+
+// ردیفِ سه باکسِ کوچک: [موجودی غیرصفر] [کد انبار] [تعداد نتایج] — در یک ردیف و چسبناک
+function searchFilterBarHtml_(count) {
+  var wh = (lastSearchMeta_.warehouses || []).slice();
+  if (searchFilters_.warehouse && wh.indexOf(searchFilters_.warehouse) === -1) wh.unshift(searchFilters_.warehouse);
+  var opts = '<option value="">همه‌ی انبارها</option>' + wh.map(function (w) {
+    return '<option value="' + escapeHtml(w) + '"' + (w === searchFilters_.warehouse ? ' selected' : '') + '>' + escapeHtml(w) + '</option>';
+  }).join('');
+  var hidden = lastSearchMeta_.hiddenZero || 0;
+  return '<div class="result-filter-bar result-sticky-title">' +
+    '<button type="button" class="rf-chip rf-toggle' + (searchFilters_.nonzero ? ' on' : '') + '" onclick="toggleSearchNonzero_()" aria-pressed="' + (searchFilters_.nonzero ? 'true' : 'false') + '">' +
+      (searchFilters_.nonzero ? '✓ ' : '') + 'موجودی غیرصفر</button>' +
+    '<label class="rf-chip rf-select' + (searchFilters_.warehouse ? ' on' : '') + '"><span>انبار:</span><select onchange="onSearchWarehouseChange_(this)">' + opts + '</select></label>' +
+    '<span class="rf-chip rf-count" title="' + (hidden ? hidden + ' مورد با موجودی صفر پنهان شده است' : '') + '">' + count + ' نتیجه</span>' +
+  '</div>';
+}
+function searchEmptyHtml_(q, offline) {
+  var filtered = searchFilters_.nonzero || searchFilters_.warehouse;
+  var msg = 'چیزی با «' + escapeHtml(q) + '» ' + (offline ? 'در داده‌ی محلی (آفلاین) ' : '') + 'پیدا نشد.';
+  if (!filtered) return '<div class="empty-hint">' + msg + '</div>';
+  var hz = lastSearchMeta_.hiddenZero || 0;
+  return searchFilterBarHtml_(0) + '<div class="empty-hint">' + msg +
+    (hz ? '<br>' + hz + ' مورد با موجودی صفر پنهان شده است.' : '') +
+    '<br><button type="button" class="btn btn-secondary" style="margin-top:10px;" onclick="showAllSearchResults_()">نمایش همه (بدون فیلتر)</button></div>';
+}
+// <<< پایان بخش افزوده‌شده
+
+function searchOfflineIndex(q, fromChip) {
   var area = document.getElementById('resultArea');
   SyncDB.cacheGet('offline_items_index').then(function (rec) {
     var items = (rec && rec.value) ? rec.value : [];
@@ -1151,17 +1193,33 @@ function searchOfflineIndex(q) {
       return;
     }
     var qNorm = String(q || '').trim().toLowerCase();
-    var results = items.filter(function (it) {
+    var matched = items.filter(function (it) {
       return (it.code && String(it.code).toLowerCase().indexOf(qNorm) !== -1) ||
              (it.name && String(it.name).toLowerCase().indexOf(qNorm) !== -1);
-    }).slice(0, 50).map(function (it) {
-      return { code: it.code, name: it.name, qty: it.systemQty, lastCountDate: it.lastCountDate || '', everCounted: !!it.everCounted };
     });
+    // فهرست انبارها (مستقل از فیلتر)، سپس فیلتر انبار/موجودی «قبل از» سقف ۵۰ نتیجه
+    var whSet = {}, whList = [];
+    matched.forEach(function (it) { (it.warehouses || []).forEach(function (w) { var n = String(w.warehouse || '').trim(); if (n && n !== '—' && !whSet[n]) { whSet[n] = true; whList.push(n); } }); });
+    var hiddenZero = 0;
+    var results = [];
+    matched.forEach(function (it) {
+      var qty = it.systemQty;
+      if (searchFilters_.warehouse) {
+        var tot = 0, has = false;
+        (it.warehouses || []).forEach(function (w) { if (String(w.warehouse || '').trim() === searchFilters_.warehouse) { var n = Number(w.qty); if (!isNaN(n)) { tot += n; has = true; } } });
+        if (!(it.warehouses || []).some(function (w) { return String(w.warehouse || '').trim() === searchFilters_.warehouse; })) return;
+        qty = has ? tot : '';
+      }
+      if (searchFilters_.nonzero && !(qty !== '' && qty != null && Number(qty) > 0)) { hiddenZero++; return; }
+      results.push({ code: it.code, name: it.name, qty: qty, lastCountDate: it.lastCountDate || '', everCounted: !!it.everCounted });
+    });
+    results = results.slice(0, 50);
+    lastSearchMeta_ = { warehouses: whList, hiddenZero: hiddenZero };
     lastSearchResults = results;
     lastSearchQuery = q;
     if (!results.length) {
-      area.innerHTML = '<div class="empty-hint">چیزی با «' + escapeHtml(q) + '» در داده‌ی محلی (آفلاین) پیدا نشد.</div>';
-    } else if (results.length === 1) {
+      area.innerHTML = searchEmptyHtml_(q, true);
+    } else if (results.length === 1 && !fromChip) {
       openItemDetail(results[0].code);
     } else {
       renderResultsList(results, q);
@@ -1197,23 +1255,29 @@ function attachLastCountToResults_(results) {
 }
 // <<< پایان بخش افزوده‌شده
 
-function doSearch() {
-  var raw = document.getElementById('searchInput').value.trim();
-  if (!raw) { showToast('چیزی برای جست‌وجو تایپ کنید', true); return; }
-  var q = extractItemCode(raw);
+function doSearch(fromChip) {
+  fromChip = (fromChip === true); // (Enter/کلیک، یک Event پاس می‌دهد؛ فقط true واقعی = تغییر فیلتر)
+  var q;
+  if (fromChip && lastSearchQuery) {
+    q = lastSearchQuery; // تغییر باکس فیلتر: همان عبارتِ قبلی دوباره جست‌وجو می‌شود
+  } else {
+    var raw = document.getElementById('searchInput').value.trim();
+    if (!raw) { showToast('چیزی برای جست‌وجو تایپ کنید', true); return; }
+    q = extractItemCode(raw);
+  }
 
   var area = document.getElementById('resultArea');
 
   // >>> افزوده شد: اگر اینترنت قطع است، مستقیم از کش آفلاین جست‌وجو کن (بدون تلاش برای apiCall)
   if (!isOnline()) {
-    searchOfflineIndex(q);
+    searchOfflineIndex(q, fromChip);
     return;
   }
   // <<< پایان بخش افزوده‌شده
 
   area.innerHTML = '<div class="lookup-loading"><div class="spinner"></div> در حال جست‌وجو...</div>';
 
-  apiCall('apiSearch', { token: state.token, q: q }).then(function (res) {
+  apiCall('apiSearch', { token: state.token, q: q, nz: searchFilters_.nonzero ? '1' : '0', wh: searchFilters_.warehouse || '' }).then(function (res) {
     if (handleIfSessionExpired(res)) return;
     if (!res.success) {
       area.innerHTML = '<div class="empty-hint">' + escapeHtml(res.message || 'خطا در جست‌وجو') + '</div>';
@@ -1222,9 +1286,10 @@ function doSearch() {
     var results = res.results || [];
     lastSearchResults = results;
     lastSearchQuery = q;
+    lastSearchMeta_ = { warehouses: res.warehouses || [], hiddenZero: res.hiddenZero || 0 };
     if (results.length === 0) {
-      area.innerHTML = '<div class="empty-hint">چیزی با «' + escapeHtml(q) + '» پیدا نشد.</div>';
-    } else if (results.length === 1) {
+      area.innerHTML = searchEmptyHtml_(q, false);
+    } else if (results.length === 1 && !fromChip) {
       openItemDetail(results[0].code);
     } else {
       // >>> افزوده شد: تکمیل «آخرین شمارش» از کش آفلاین قبل از نمایش فهرست نتایج
@@ -1235,7 +1300,7 @@ function doSearch() {
     }
   }).catch(function () {
     // >>> افزوده شد: اتصال ناپایدار/قطع وسط جست‌وجو — به‌جای نمایش خطا، از کش آفلاین جست‌وجو کن
-    searchOfflineIndex(q);
+    searchOfflineIndex(q, fromChip);
     // <<< پایان بخش افزوده‌شده
   });
 }
@@ -1243,7 +1308,8 @@ function doSearch() {
 function renderResultsList(results, q) {
   setHeaderTitle('نتایج جست‌وجو');
   var area = document.getElementById('resultArea');
-  var html = '<div class="section-title result-sticky-title">' + results.length + ' نتیجه برای «' + escapeHtml(q) + '»</div><div class="result-list">';
+  // >>> تغییر یافت: به‌جای عنوانِ وسط‌چینِ «N نتیجه برای ...»، ردیفِ باکس‌های فیلتر + تعداد نتایج
+  var html = searchFilterBarHtml_(results.length) + '<div class="result-list">';
   results.forEach(function (r) {
     // >>> افزوده شد: آخرین تاریخ شمارشِ این کالا (فقط تاریخ، بدون ساعت، برای سبک ماندن نتیجه)
     // — از داده‌ی واقعیِ تاریخچه‌ی شمارش (lastCountDate/everCounted، بدون هیچ محدودیت زمانی)
@@ -1300,7 +1366,11 @@ var remainingSort_ = { key: '', dir: 1 };
 // کالاهایی که تا به حال (بدون محدودیت زمانی) شمارش نشده‌اند — دقیقاً همان تعریفِ
 // «کالاهای باقیمانده» در پنل مدیریتی (getCountCoverage)
 function filterRemainingFromIndex_(items) {
-  return (items || []).filter(function (it) { return !it.everCounted; });
+  // >>> اصلاح شد: فقط کالاهایی که موجودیِ غیرصفر دارند و هنوز شمارش نشده‌اند (کالای با موجودی صفر/نامشخص نمایش داده نمی‌شود)
+  return (items || []).filter(function (it) {
+    var q = Number(it.systemQty);
+    return !it.everCounted && it.systemQty !== '' && it.systemQty != null && !isNaN(q) && q > 0;
+  });
 }
 
 // >>> افزوده شد: به‌روزرسانی نشان تعداد روی دکمه‌ی ورودی، زیر نوار جست‌وجو — از همان کش
@@ -1419,7 +1489,7 @@ function remainingRowValues_(it) {
 function renderRemainingItemsList() {
   var area = document.getElementById('remainingArea');
   if (!remainingItemsData_.length) {
-    area.innerHTML = '<div class="empty-hint">🎉 همه‌ی کالاها حداقل یک‌بار شمارش شده‌اند.</div>';
+    area.innerHTML = '<div class="empty-hint">🎉 همه‌ی کالاهای دارای موجودی حداقل یک‌بار شمارش شده‌اند.</div>';
     return;
   }
 
@@ -1431,7 +1501,7 @@ function renderRemainingItemsList() {
   }).join('');
 
   var html =
-    '<div class="section-title">کالاهای باقیمانده (<span id="remainingListCountLabel">' + remainingItemsData_.length + '</span>)</div>' +
+    '<div class="section-title">کالاهای باقیمانده — موجودی غیرصفر و شمارش‌نشده (<span id="remainingListCountLabel">' + remainingItemsData_.length + '</span>)</div>' +
     '<div class="table-wrap" id="remainingTableWrap"><table class="data-table" id="remainingListTable"><thead><tr>' + filterCellsHtml + '</tr></thead>' +
     '<tbody id="remainingListBody">' + buildRemainingRowsHtml_(remainingItemsData_) + '</tbody></table></div>';
   area.innerHTML = html;
@@ -1659,6 +1729,17 @@ function openPublicShelfPreview(code) {
   });
 }
 
+// >>> افزوده شد: نمایش اقلام قفسه حتی وقتی وزن/موجودی ثبت نشده است (به‌جای حذف شدن از فهرست)
+function shelfItemMetaHtml_(it) {
+  var hasQty = it.qty !== null && it.qty !== undefined && it.qty !== '';
+  var hasUw = it.unitWeight !== null && it.unitWeight !== undefined && it.unitWeight !== '';
+  var hasTw = it.totalWeight !== null && it.totalWeight !== undefined && it.totalWeight !== '';
+  return '<span>تعداد: ' + (hasQty ? escapeHtml(String(it.qty)) : '<span style="color:#a15c00;">ثبت نشده</span>') + '</span>' +
+    '<span>وزن واحد: ' + (hasUw ? escapeHtml(String(it.unitWeight)) + ' kg' : '<span style="color:#a15c00;">ثبت نشده</span>') + '</span>' +
+    (hasTw ? '<span><b>وزن کل: ' + escapeHtml(String(it.totalWeight)) + ' kg</b></span>' : '<span style="color:#8b94a0;">وزن کل: —</span>');
+}
+// <<< پایان بخش افزوده‌شده
+
 function renderPublicShelfPreview(shelf) {
   var area = document.getElementById('publicItemArea');
   var color = shelfLoadStatusColorClient_(shelf.loadStatus);
@@ -1674,7 +1755,7 @@ function renderPublicShelfPreview(shelf) {
       '<div style="margin:10px 0 16px;">' + shelfUsageBarHtmlClient_(shelf.usagePercent, color) + '</div>' +
       '<div class="section-title">کالاهای این قفسه (' + (shelf.items || []).length + ')</div>';
   if (!(shelf.items || []).length) {
-    html += '<div class="empty-hint">کالایی با وزن ثبت‌شده روی این قفسه نیست.</div>';
+    html += '<div class="empty-hint">کالایی روی این قفسه ثبت نشده است.</div>';
   } else {
     html += '<div class="result-list">';
     shelf.items.forEach(function (it) {
@@ -1685,9 +1766,7 @@ function renderPublicShelfPreview(shelf) {
             '<div class="result-name">' + escapeHtml(it.name || '(بدون نام)') + '</div>' +
             '<div class="result-meta">' +
               '<span class="code-pill-sm">' + escapeHtml(it.code) + '</span>' +
-              '<span>تعداد: ' + escapeHtml(String(it.qty)) + '</span>' +
-              '<span>وزن واحد: ' + escapeHtml(String(it.unitWeight)) + ' kg</span>' +
-              '<span><b>وزن کل: ' + escapeHtml(String(it.totalWeight)) + ' kg</b></span>' +
+              shelfItemMetaHtml_(it) +
             '</div>' +
           '</div>' +
         '</div>';
@@ -2952,7 +3031,7 @@ function renderShelfDetail(shelf) {
 
   html += '<div class="section-title">کالاهای این قفسه (' + shelf.items.length + ')</div>';
   if (!shelf.items.length) {
-    html += '<div class="empty-hint">کالایی با وزن ثبت‌شده روی این قفسه نیست.</div>';
+    html += '<div class="empty-hint">کالایی روی این قفسه ثبت نشده است.</div>';
   } else {
     html += '<div class="result-list">';
     shelf.items.forEach(function (it) {
@@ -2963,9 +3042,7 @@ function renderShelfDetail(shelf) {
             '<div class="result-name">' + escapeHtml(it.name || '(بدون نام)') + '</div>' +
             '<div class="result-meta">' +
               '<span class="code-pill-sm">' + escapeHtml(it.code) + '</span>' +
-              '<span>تعداد: ' + escapeHtml(String(it.qty)) + '</span>' +
-              '<span>وزن واحد: ' + escapeHtml(String(it.unitWeight)) + ' kg</span>' +
-              '<span><b>وزن کل: ' + escapeHtml(String(it.totalWeight)) + ' kg</b></span>' +
+              shelfItemMetaHtml_(it) +
             '</div>' +
           '</div>' +
         '</div>';
