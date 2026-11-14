@@ -972,7 +972,23 @@ var jsonpCounter = 0;
 // (هیچ فراخوانیِ موجودی که این پارامتر را نمی‌دهد رفتارش تغییر نمی‌کند). فقط برای درخواست‌های
 // سنگین‌تر (مثلاً ثبتِ رکوردِ لیست‌ساز که ممکن است با سردشدنِ Apps Script کندتر پاسخ دهد) از
 // یک تایم‌اوتِ طولانی‌تر استفاده می‌شود تا خطای نادرستِ «سرور پاسخ نداد» کمتر رخ دهد.
+// >>> افزوده شد: تلاش مجدد خودکار (فقط برای ورود و درخواست‌های «خواندنی»، تا ثبت تکراری پیش نیاید)
+// وقتی بارگذاری اسکریپت سرور موقتاً شکست می‌خورد (شروع سرد Apps Script، قطع کوتاه شبکه موبایل).
+var API_RETRY_SAFE_ = { apiLogin: 1, apiSearch: 1, apiLookup: 1, apiOfflineIndex: 1 };
 function apiCall(action, params, timeoutMs) {
+  var tries = 0;
+  function attempt() {
+    return apiCallOnce_(action, params, timeoutMs).catch(function (err) {
+      if (API_RETRY_SAFE_[action] && tries < 2 && err && err.message === 'اتصال به سرور برقرار نشد.' && isOnline()) {
+        tries++;
+        return new Promise(function (r) { setTimeout(r, 700 * tries); }).then(attempt);
+      }
+      throw err;
+    });
+  }
+  return attempt();
+}
+function apiCallOnce_(action, params, timeoutMs) {
   return new Promise(function (resolve, reject) {
     // >>> اصلاح شد: قبلاً فقط کپیِ حافظه‌ای state.serverUrl بررسی می‌شد. اگر به هر دلیلی (مثلاً
     // در برخی مرورگرها/حالت PWA نصب‌شده روی گوشی) این کپی در حافظه خالی بماند درحالی‌که خودِ
@@ -1040,7 +1056,7 @@ function handleIfSessionExpired(res) {
 
 // ===================== ورود =====================
 function doLogin() {
-  var serverUrl = document.getElementById('serverUrlInput').value.trim();
+  var serverUrl = document.getElementById('serverUrlInput').value.replace(/[\s\u200B-\u200F\u202A-\u202E\uFEFF]+/g, '').replace(/[«»"']/g, '');  // حذف فاصله/کاراکتر نامرئی که کیبورد گوشی اضافه می‌کند
   var username = document.getElementById('loginUsername').value.trim();
   var password = document.getElementById('loginPassword').value;
   var msgBox = document.getElementById('loginMsg');
@@ -1088,7 +1104,9 @@ function doLogin() {
     enterApp();
   }).catch(function (err) {
     btn.disabled = false; btn.textContent = 'ورود';
-    msgBox.innerHTML = '<div class="msg err">' + escapeHtml(err.message) + '</div>';
+    var hint = (err && err.message === 'اتصال به سرور برقرار نشد.')
+      ? '<br><small>بررسی کنید: ۱) اینترنت گوشی ۲) «آدرس سامانه» دقیقاً آدرس آخرین Deploy (.../exec) باشد و فاصله‌ی اضافه نداشته باشد ۳) دسترسی Deploy روی «Anyone» باشد.</small>' : '';
+    msgBox.innerHTML = '<div class="msg err">' + escapeHtml(err.message) + hint + '</div>';
   });
 }
 
@@ -1690,19 +1708,210 @@ function loadItemsJson() {
     });
 }
 
+
+// ======================================================================
+// >>> افزوده شد: گالری تصاویر کالا (کشویی با فلش‌های کناری) + بزرگ‌نمایی تمام‌صفحه + ثبت تصویر با گوشی
+// ======================================================================
+var gal_ = { code: '', items: [], canUpload: false, maxPx: 1000, quality: 70, maxCount: 10, idx: 0, readOnly: false };
+var ICON_CAM_ = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>';
+var ICON_CHEV_L_ = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>';
+var ICON_CHEV_R_ = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
+var ICON_X_ = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+
+function galDriveId_(url) { var m = String(url || '').match(/[?&]id=([a-zA-Z0-9_-]+)/); return m ? m[1] : ''; }
+function galBig_(url) { return String(url).replace(/([?&]sz=)w\d+/, '$1w1600'); }
+function galFa_(n) { return String(n).replace(/\d/g, function (d) { return '۰۱۲۳۴۵۶۷۸۹'.charAt(Number(d)); }); }
+
+function gallerySetup_(code, urls, opts) {
+  opts = opts || {};
+  gal_.code = code; gal_.idx = 0;
+  gal_.canUpload = !!opts.canUpload; gal_.readOnly = !!opts.readOnly;
+  if (opts.maxPx) gal_.maxPx = opts.maxPx; if (opts.quality) gal_.quality = opts.quality; if (opts.maxCount) gal_.maxCount = opts.maxCount;
+  var folder = opts.folderIds || {};
+  gal_.items = (urls || []).map(function (u) { var id = galDriveId_(u); return { url: u, id: id, deletable: !!(id && folder[id]) }; });
+}
+
+function galleryMarkup_() {
+  var n = gal_.items.length, h = '<div class="ig-wrap">';
+  if (!n) {
+    h += '<div class="item-noimg">تصویری ثبت نشده</div>';
+  } else {
+    h += '<div class="ig-frame">' +
+      '<div class="ig-track" id="igTrack" onscroll="galleryOnScroll_()">' +
+        gal_.items.map(function (it, i) {
+          return '<div class="ig-slide" onclick="galleryOpenLb_(' + i + ')"><img src="' + escapeHtml(it.url) + '" alt="" loading="' + (i === 0 ? 'eager' : 'lazy') + '" onerror="galImgErr_(this)"></div>';
+        }).join('') +
+      '</div>' +
+      (n > 1 ? '<button type="button" class="ig-nav ig-prev" onclick="galleryStep_(-1)" aria-label="قبلی">' + ICON_CHEV_L_ + '</button>' +
+               '<button type="button" class="ig-nav ig-next" onclick="galleryStep_(1)" aria-label="بعدی">' + ICON_CHEV_R_ + '</button>' : '') +
+      '<span class="ig-count" id="igCount">' + galFa_(1) + ' / ' + galFa_(n) + '</span>' +
+    '</div>';
+    if (n > 1) h += '<div class="ig-dots" id="igDots">' + gal_.items.map(function (x, i) { return '<span class="' + (i === 0 ? 'on' : '') + '"></span>'; }).join('') + '</div>';
+  }
+  if (gal_.canUpload && !gal_.readOnly) {
+    h += '<div class="ig-actions"><button type="button" class="ig-add" id="igAddBtn" onclick="galleryPick_()">' + ICON_CAM_ + '<span>افزودن تصویر</span></button>' +
+         '<input type="file" id="igFile" accept="image/*" multiple style="display:none" onchange="galleryFilesChosen_(this)"></div>';
+  }
+  return h + '</div>';
+}
+function galleryRender_() {
+  var host = document.getElementById('itemGalleryHost');
+  if (host) host.innerHTML = galleryMarkup_();
+}
+function galImgErr_(img) {
+  if (!img.getAttribute('data-r')) { img.setAttribute('data-r', '1'); var u = img.src; setTimeout(function () { img.src = u + (u.indexOf('?') === -1 ? '?' : '&') + 'r=' + Date.now(); }, 1500); }
+  else { var sl = img.closest ? img.closest('.ig-slide') : null; if (sl) sl.classList.add('broken'); img.style.display = 'none'; }
+}
+function galleryOnScroll_() {
+  var t = document.getElementById('igTrack'); if (!t || !t.clientWidth) return;
+  var i = Math.round(t.scrollLeft / t.clientWidth); galleryMarkIdx_(i);
+}
+function galleryMarkIdx_(i) {
+  var n = gal_.items.length; if (i < 0) i = 0; if (i >= n) i = n - 1; gal_.idx = i;
+  var c = document.getElementById('igCount'); if (c) c.textContent = galFa_(i + 1) + ' / ' + galFa_(n);
+  var d = document.getElementById('igDots'); if (d) Array.prototype.forEach.call(d.children, function (el, k) { el.className = k === i ? 'on' : ''; });
+}
+function galleryStep_(dir) {
+  var t = document.getElementById('igTrack'); if (!t) return;
+  t.scrollTo({ left: Math.max(0, Math.min(gal_.items.length - 1, Math.round(t.scrollLeft / t.clientWidth) + dir)) * t.clientWidth, behavior: 'smooth' });
+}
+function galleryGoto_(i, smooth) {
+  var t = document.getElementById('igTrack'); if (!t) return;
+  t.scrollTo({ left: i * t.clientWidth, behavior: smooth ? 'smooth' : 'auto' }); galleryMarkIdx_(i);
+}
+
+// ---- بزرگ‌نمایی تمام‌صفحه ----
+var galLbOpen_ = false, galLbPushed_ = false;
+function galleryOpenLb_(i) {
+  if (!gal_.items.length || galLbOpen_) return;
+  galLbOpen_ = true;
+  var lb = document.createElement('div'); lb.id = 'igLb'; lb.className = 'ig-lb';
+  lb.innerHTML =
+    '<div class="ig-lb-top">' +
+      '<button type="button" class="ig-lb-btn" onclick="galleryCloseLb_()" aria-label="بستن">' + ICON_X_ + '</button>' +
+      '<span class="ig-lb-count" id="igLbCount"></span>' +
+      '<button type="button" class="ig-lb-back" onclick="galleryCloseLb_()">بازگشت به مشخصات کالا</button>' +
+    '</div>' +
+    '<div class="ig-lb-track" id="igLbTrack" onscroll="galleryLbScroll_()">' +
+      gal_.items.map(function (it) { return '<div class="ig-lb-slide" onclick="if(event.target===this)galleryCloseLb_()"><img src="' + escapeHtml(galBig_(it.url)) + '" alt="" onerror="galImgErr_(this)"></div>'; }).join('') +
+    '</div>' +
+    (gal_.items.length > 1 ? '<button type="button" class="ig-nav ig-prev ig-lb-nav" onclick="galleryLbStep_(-1)">' + ICON_CHEV_L_ + '</button><button type="button" class="ig-nav ig-next ig-lb-nav" onclick="galleryLbStep_(1)">' + ICON_CHEV_R_ + '</button>' : '') +
+    '<div class="ig-lb-bottom" id="igLbBottom"></div>';
+  document.body.appendChild(lb);
+  document.body.classList.add('ig-lb-on');
+  var t = document.getElementById('igLbTrack'); t.scrollLeft = i * t.clientWidth;
+  galleryLbMark_(i);
+  try { history.pushState({ igLb: 1 }, ''); galLbPushed_ = true; } catch (e) { galLbPushed_ = false; }
+  document.addEventListener('keydown', galleryLbKey_);
+}
+function galleryLbMark_(i) {
+  var n = gal_.items.length; if (i < 0) i = 0; if (i >= n) i = n - 1; gal_.lbIdx = i;
+  var c = document.getElementById('igLbCount'); if (c) c.textContent = galFa_(i + 1) + ' / ' + galFa_(n);
+  var b = document.getElementById('igLbBottom');
+  if (b) b.innerHTML = (gal_.canUpload && gal_.items[i] && gal_.items[i].deletable) ? '<button type="button" class="ig-lb-del" onclick="galleryDeleteCurrent_()">حذف این تصویر</button>' : '';
+}
+function galleryLbScroll_() { var t = document.getElementById('igLbTrack'); if (t && t.clientWidth) galleryLbMark_(Math.round(t.scrollLeft / t.clientWidth)); }
+function galleryLbStep_(d) { var t = document.getElementById('igLbTrack'); if (!t) return; t.scrollTo({ left: Math.max(0, Math.min(gal_.items.length - 1, Math.round(t.scrollLeft / t.clientWidth) + d)) * t.clientWidth, behavior: 'smooth' }); }
+function galleryLbKey_(ev) { if (ev.key === 'Escape') galleryCloseLb_(); }
+function galleryCloseLb_(fromPop) {
+  if (!galLbOpen_) return;
+  galLbOpen_ = false;
+  var lb = document.getElementById('igLb'); if (lb) lb.parentNode.removeChild(lb);
+  document.body.classList.remove('ig-lb-on');
+  document.removeEventListener('keydown', galleryLbKey_);
+  var last = gal_.lbIdx || 0;
+  if (galLbPushed_ && !fromPop) { galLbPushed_ = false; try { history.back(); } catch (e) {} }
+  galLbPushed_ = false;
+  setTimeout(function () { galleryGoto_(last, false); }, 30);
+}
+window.addEventListener('popstate', function () { if (galLbOpen_) { galLbPushed_ = false; galleryCloseLb_(true); } });
+
+// ---- بارگذاری فهرست تازه‌ی تصاویر (شامل مجوز ثبت) و ثبت تصویر جدید ----
+function galleryLoadFresh_(code, thenIdx) {
+  if (!state.token || !isOnline()) return Promise.resolve();
+  return apiCall('apiItemImages', { token: state.token, code: code }).then(function (r) {
+    if (!r || !r.success || gal_.code !== code) return;
+    var folder = {}, folderUrls = [];
+    (r.images || []).forEach(function (x) { folder[x.id] = true; folderUrls.push(x.url); });
+    var keep = gal_.items.filter(function (it) { return !it.id || !folder[it.id]; }).map(function (it) { return it.url; }); // تصاویر ستونیِ شیت
+    var prevN = gal_.items.length;
+    gallerySetup_(code, keep.concat(folderUrls), { canUpload: !!r.canUpload, maxPx: r.maxPx, quality: r.quality, maxCount: r.maxCount, folderIds: folder });
+    galleryRender_();
+    if (thenIdx === 'last') galleryGoto_(gal_.items.length - 1, false);
+  }).catch(function () { /* بی‌صدا: گالریِ فعلی می‌ماند */ });
+}
+function galleryPick_() {
+  if (!isOnline()) { showToast('ثبت تصویر فقط در حالت آنلاین ممکن است.', true); return; }
+  var f = document.getElementById('igFile'); if (f) { f.value = ''; f.click(); }
+}
+function galCompress_(file, maxPx, q) {
+  return new Promise(function (resolve, reject) {
+    var url = URL.createObjectURL(file), img = new Image();
+    img.onload = function () {
+      try {
+        var w = img.naturalWidth, h = img.naturalHeight, sc = Math.min(1, maxPx / Math.max(w, h));
+        var c = document.createElement('canvas'); c.width = Math.max(1, Math.round(w * sc)); c.height = Math.max(1, Math.round(h * sc));
+        var ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height); ctx.drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url);
+        var qq = q / 100, out = c.toDataURL('image/jpeg', qq);
+        while (out.length > 1500000 && qq > 0.4) { qq -= 0.1; out = c.toDataURL('image/jpeg', qq); }
+        resolve(out.split(',')[1]);
+      } catch (e) { reject(e); }
+    };
+    img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('این فایل به‌عنوان تصویر خوانده نشد.')); };
+    img.src = url;
+  });
+}
+function galDelay_(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+function galPoll_(opId, i) {
+  return apiCall('apiImageUploadStatus', { token: state.token, opId: opId }).then(function (r) {
+    if (r && r.pending) { if (i > 40) throw new Error('پاسخ سرور دریافت نشد؛ کمی بعد تصاویر را بررسی کنید.'); return galDelay_(1500).then(function () { return galPoll_(opId, i + 1); }); }
+    if (!r || !r.success) throw new Error((r && r.message) || 'ثبت تصویر ناموفق بود.');
+    return r;
+  });
+}
+function galUploadOne_(code, b64) {
+  var opId = 'img_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+  return fetch(state.serverUrl, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ action: 'apiImageUpload', token: state.token, code: code, opId: opId, data: b64 }) })
+    .then(function () { return galPoll_(opId, 0); });
+}
+function galleryFilesChosen_(input) {
+  var files = Array.prototype.slice.call(input.files || []); if (!files.length) return;
+  var code = gal_.code, btn = document.getElementById('igAddBtn'), lbl = btn ? btn.querySelector('span') : null, ok = 0, i = 0;
+  if (btn) btn.disabled = true;
+  function next() {
+    if (i >= files.length) return Promise.resolve();
+    var f = files[i++]; if (lbl) lbl.textContent = 'در حال ارسال ' + galFa_(i) + ' از ' + galFa_(files.length) + '...';
+    return galCompress_(f, gal_.maxPx, gal_.quality).then(function (b64) { return galUploadOne_(code, b64); })
+      .then(function () { ok++; }).catch(function (e) { showToast(e.message || 'خطا در ثبت تصویر', true); }).then(next);
+  }
+  next().then(function () {
+    if (btn) btn.disabled = false;
+    if (ok) { showToast(galFa_(ok) + ' تصویر ثبت شد ✓', false); return galleryLoadFresh_(code, 'last'); }
+    if (lbl) lbl.textContent = 'افزودن تصویر';
+  });
+}
+function galleryDeleteCurrent_() {
+  var it = gal_.items[gal_.lbIdx || 0]; if (!it || !it.deletable) return;
+  if (!confirm('این تصویر حذف شود؟')) return;
+  var code = gal_.code;
+  apiCall('apiImageDelete', { token: state.token, code: code, fileId: it.id }).then(function (r) {
+    if (!r || !r.success) { showToast((r && r.message) || 'حذف ناموفق بود.', true); return; }
+    showToast('تصویر حذف شد', false);
+    galleryCloseLb_();
+    galleryLoadFresh_(code);
+  }).catch(function (e) { showToast(e.message || 'خطا در حذف', true); });
+}
+// <<< پایان بخش گالری تصاویر
+
 function renderPublicItemPreview(item, code) {
   var area = document.getElementById('publicItemArea');
   var images = item.images || [];
   var fields = item.fields || [];
 
-  var galleryHtml;
-  if (images.length) {
-    galleryHtml = '<div class="item-gallery">' + images.map(function (src) {
-      return '<img src="' + escapeHtml(src) + '" onerror="this.style.display=\'none\'">';
-    }).join('') + '</div>';
-  } else {
-    galleryHtml = '<div class="item-noimg">تصویری ثبت نشده</div>';
-  }
+  gallerySetup_(code, images, { readOnly: true });
+  var galleryHtml = '<div id="itemGalleryHost">' + galleryMarkup_() + '</div>';
 
   var fieldsHtml = '';
   if (fields.length) {
@@ -2133,9 +2342,8 @@ function renderItemDetail(item) {
   var shelfNameMap = buildShelfNameMap_(item);
   var unit = findUnitFromFields_(item);
 
-  var galleryHtml = images.length
-    ? '<div class="item-gallery">' + images.map(function (src) { return '<img src="' + escapeHtml(src) + '" onerror="this.style.display=\'none\'">'; }).join('') + '</div>'
-    : '<div class="item-noimg">تصویری ثبت نشده</div>';
+  gallerySetup_(item.code, images, {});
+  var galleryHtml = '<div id="itemGalleryHost">' + galleryMarkup_() + '</div>';
 
   var fieldsHtml = fields.length
     ? '<div class="item-fields">' + fields.map(function (f) { return '<div class="item-field"><div class="k">' + escapeHtml(f[0]) + '</div><div class="v">' + escapeHtml(f[1]) + '</div></div>'; }).join('') + '</div>'
@@ -2279,6 +2487,7 @@ function renderItemDetail(item) {
     '</div>';
 
   area.innerHTML = mainCard + warehousesCard + shelvesCard + capacityCard + weightCard + countCard;
+  galleryLoadFresh_(item.code); // تصاویر تازه‌ی پوشه + مجوز ثبت تصویر (فقط آنلاین)
 
   if (hasWarehouseAccess && shelves.length > 0) {
     loadShelfCapacitySection(item.code, shelves.map(function (s) { return s.shelfCode; }));
