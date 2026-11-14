@@ -677,3 +677,14 @@ body.has-bottom-nav #incomingQcArea{padding-bottom:calc(78px + env(safe-area-ins
   .app-header{padding-inline:calc((100% - var(--container-max)) / 2 + 14px);}
 }
 
+
+/* برچسب کوچک روی هر باکس در ردیف‌های شمارش */
+.count-row .cr-field{position:relative;display:block;flex:1;min-width:0;background:var(--accent-light,#e8f1fb);border:1px solid var(--border);border-radius:10px;padding:15px 4px 4px;margin:0;}
+.count-row .cr-field.cr-cur{flex:0 0 76px;}
+.count-row .cr-field select{font-size:11px;padding-inline:2px;}
+.count-row .cr-field.cr-code{flex:1.1;}
+.count-row .cr-lbl{position:absolute;top:2px;right:8px;left:8px;font-size:9.5px;font-weight:800;color:var(--muted);line-height:1.2;pointer-events:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.count-row .cr-field select,.count-row .cr-field input{width:100%;box-sizing:border-box;padding:6px 5px;}
+.count-row .cr-field .count-row-current-qty{display:block;min-width:0;padding:6px 3px;}
+.count-row .count-row-line2{align-items:stretch;}
+.count-row .count-row-line2 .count-row-del{align-self:flex-end;height:36px;}
