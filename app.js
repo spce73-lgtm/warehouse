@@ -972,7 +972,23 @@ var jsonpCounter = 0;
 // (هیچ فراخوانیِ موجودی که این پارامتر را نمی‌دهد رفتارش تغییر نمی‌کند). فقط برای درخواست‌های
 // سنگین‌تر (مثلاً ثبتِ رکوردِ لیست‌ساز که ممکن است با سردشدنِ Apps Script کندتر پاسخ دهد) از
 // یک تایم‌اوتِ طولانی‌تر استفاده می‌شود تا خطای نادرستِ «سرور پاسخ نداد» کمتر رخ دهد.
+// >>> افزوده شد: تلاش مجدد خودکار (فقط برای ورود و درخواست‌های «خواندنی»، تا ثبت تکراری پیش نیاید)
+// وقتی بارگذاری اسکریپت سرور موقتاً شکست می‌خورد (شروع سرد Apps Script، قطع کوتاه شبکه موبایل).
+var API_RETRY_SAFE_ = { apiLogin: 1, apiSearch: 1, apiLookup: 1, apiOfflineIndex: 1 };
 function apiCall(action, params, timeoutMs) {
+  var tries = 0;
+  function attempt() {
+    return apiCallOnce_(action, params, timeoutMs).catch(function (err) {
+      if (API_RETRY_SAFE_[action] && tries < 2 && err && err.message === 'اتصال به سرور برقرار نشد.' && isOnline()) {
+        tries++;
+        return new Promise(function (r) { setTimeout(r, 700 * tries); }).then(attempt);
+      }
+      throw err;
+    });
+  }
+  return attempt();
+}
+function apiCallOnce_(action, params, timeoutMs) {
   return new Promise(function (resolve, reject) {
     // >>> اصلاح شد: قبلاً فقط کپیِ حافظه‌ای state.serverUrl بررسی می‌شد. اگر به هر دلیلی (مثلاً
     // در برخی مرورگرها/حالت PWA نصب‌شده روی گوشی) این کپی در حافظه خالی بماند درحالی‌که خودِ
@@ -1040,7 +1056,7 @@ function handleIfSessionExpired(res) {
 
 // ===================== ورود =====================
 function doLogin() {
-  var serverUrl = document.getElementById('serverUrlInput').value.trim();
+  var serverUrl = document.getElementById('serverUrlInput').value.replace(/[\s\u200B-\u200F\u202A-\u202E\uFEFF]+/g, '').replace(/[«»"']/g, '');  // حذف فاصله/کاراکتر نامرئی که کیبورد گوشی اضافه می‌کند
   var username = document.getElementById('loginUsername').value.trim();
   var password = document.getElementById('loginPassword').value;
   var msgBox = document.getElementById('loginMsg');
@@ -1088,7 +1104,9 @@ function doLogin() {
     enterApp();
   }).catch(function (err) {
     btn.disabled = false; btn.textContent = 'ورود';
-    msgBox.innerHTML = '<div class="msg err">' + escapeHtml(err.message) + '</div>';
+    var hint = (err && err.message === 'اتصال به سرور برقرار نشد.')
+      ? '<br><small>بررسی کنید: ۱) اینترنت گوشی ۲) «آدرس سامانه» دقیقاً آدرس آخرین Deploy (.../exec) باشد و فاصله‌ی اضافه نداشته باشد ۳) دسترسی Deploy روی «Anyone» باشد.</small>' : '';
+    msgBox.innerHTML = '<div class="msg err">' + escapeHtml(err.message) + hint + '</div>';
   });
 }
 
