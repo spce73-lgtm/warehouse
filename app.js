@@ -732,7 +732,7 @@ function refreshOfflineCache() {
       // >>> افزوده شد: فهرست قفسه‌های «فعال» (کد+محل) — برای پر کردن کشویی قفسه در ویرایش
       // آفلاینِ وزن/قفسه، بدون نیاز به درخواست جداگانه‌ی apiListActiveShelves
       var activeShelvesList = res.shelves.filter(function (s) { return s.status === 'فعال'; })
-        .map(function (s) { return { code: s.code, location: s.location || '' }; });
+        .map(function (s) { return { code: s.code, location: s.location || '', category: s.category || '' }; });
       tasks.push(SyncDB.cacheSet('active_shelves_list', activeShelvesList, 24 * 60 * 60 * 1000));
       // <<< پایان بخش افزوده‌شده
     }
@@ -1205,11 +1205,32 @@ function searchOfflineIndex(q, fromChip) {
       area.innerHTML = '<div class="empty-hint">اتصال اینترنت برقرار نیست و داده‌ای برای جست‌وجوی آفلاین ذخیره نشده است. لطفاً یک‌بار وقتی آنلاین هستید وارد شوید.</div>';
       return;
     }
-    var qNorm = String(q || '').trim().toLowerCase();
-    var matched = items.filter(function (it) {
-      return (it.code && String(it.code).toLowerCase().indexOf(qNorm) !== -1) ||
-             (it.name && String(it.name).toLowerCase().indexOf(qNorm) !== -1);
+    // >>> بازطراحی شد: جست‌وجوی چندفیلدی — همه‌ی کلمات پرسش در «کد، نام، و همه‌ی فیلدهای توصیفی
+    // (مشخصات فنی و...)» جست‌وجو می‌شود؛ اگر هیچ کالایی همه‌ی کلمات را نداشت، «کالاهای مشابه» (حداقل
+    // نیمی از کلمات) نشان داده می‌شود. نتایج بر اساس شباهت (کد/نام اول) مرتب می‌شوند.
+    var normTxt = function (v) {
+      return String(v == null ? '' : v).replace(/[۰-۹]/g, function (d) { return '۰۱۲۳۴۵۶۷۸۹'.indexOf(d); })
+        .replace(/[٠-٩]/g, function (d) { return '٠١٢٣٤٥٦٧٨٩'.indexOf(d); })
+        .replace(/ي/g, 'ی').replace(/ك/g, 'ک').toLowerCase();
+    };
+    var qNorm = normTxt(String(q || '').trim());
+    var words = qNorm.split(/[\s,،\-:\/]+/).filter(function (w) { return w; });
+    var scored = [];
+    items.forEach(function (it) {
+      var codeT = normTxt(it.code), nameT = normTxt(it.name);
+      var fieldsT = (it.fields || []).map(function (f) { return normTxt((f && f[0]) + ' ' + (f && f[1])); }).join(' ');
+      var hay = codeT + ' ' + nameT + ' ' + fieldsT;
+      var hit = 0, nameHit = 0;
+      words.forEach(function (w) { if (hay.indexOf(w) !== -1) hit++; if (nameT.indexOf(w) !== -1 || codeT.indexOf(w) !== -1) nameHit++; });
+      if (!hit) return;
+      var sc = hit * 10 + nameHit * 3 + (codeT === qNorm ? 100 : 0) + (codeT.indexOf(qNorm) === 0 ? 20 : 0) + (nameT.indexOf(qNorm) !== -1 ? 15 : 0);
+      scored.push({ it: it, hit: hit, sc: sc });
     });
+    var full = scored.filter(function (x) { return x.hit === words.length; });
+    var pool = full.length ? full : (words.length > 1 ? scored.filter(function (x) { return x.hit >= Math.ceil(words.length / 2); }) : []);
+    pool.sort(function (a, b) { return b.sc - a.sc; });
+    var matched = pool.map(function (x) { return x.it; });
+    // <<< پایان بخش بازطراحی‌شده
     // فهرست انبارها (مستقل از فیلتر)، سپس فیلتر انبار/موجودی «قبل از» سقف ۵۰ نتیجه
     var whSet = {}, whList = [];
     matched.forEach(function (it) { (it.warehouses || []).forEach(function (w) { var n = String(w.warehouse || '').trim(); if (n && n !== '—' && !whSet[n]) { whSet[n] = true; whList.push(n); } }); });
@@ -1862,8 +1883,14 @@ function showItemFromOfflineCache(code, area, fallbackMsg) {
       }
       // >>> افزوده شد: پر کردن کشویی قفسه در حالت آفلاین از کش «فهرست قفسه‌های فعال»
       if (state.warehouseAccess && found.shelfCode !== undefined) {
-        SyncDB.cacheGet('active_shelves_list').then(function (asRec) {
-          minimal.activeShelves = (asRec && asRec.value) ? asRec.value : [];
+        Promise.all([SyncDB.cacheGet('shelves_list'), SyncDB.cacheGet('active_shelves_list')]).then(function (recs) {
+          var full = recs[0] && recs[0].value, act = recs[1] && recs[1].value;
+          if (full && full.length) {
+            minimal.activeShelves = full.filter(function (s) { return s.status === 'فعال'; })
+              .map(function (s) { return { code: s.code, location: s.location || '', category: s.category || '' }; });
+          } else {
+            minimal.activeShelves = act || [];
+          }
           currentDetail = minimal;
           showToast('نمایش نسخه‌ی خلاصه از داده‌ی محلی (آفلاین)', false);
           renderItemDetail(minimal);
@@ -2054,8 +2081,9 @@ function buildCountRowShelfCascadeHtml_(codeSelectId, activeShelves, selectedCod
     }).join('');
   }
 
-  return '<select class="count-row-shelf-name" id="' + nameSelectId + '" data-code-target="' + codeSelectId + '" onchange="onShelfNameCascadeChange_(this)">' + nameOptions + '</select>' +
-    '<select class="count-row-shelf" id="' + codeSelectId + '" onchange="onCountRowCodeChange_(this)">' + codeOptions + '</select>';
+  return '<label class="cr-field cr-name"><span class="cr-lbl">نام قفسه</span><select class="count-row-shelf-name" id="' + nameSelectId + '" data-code-target="' + codeSelectId + '" onchange="onShelfNameCascadeChange_(this)">' + nameOptions + '</select></label>' +
+    '|||' +
+    '<label class="cr-field cr-code"><span class="cr-lbl">کد قفسه</span><select class="count-row-shelf" id="' + codeSelectId + '" onchange="onCountRowCodeChange_(this)">' + codeOptions + '</select></label>';
 }
 
 // وقتی «نام قفسه» عوض شود، گزینه‌های «کد قفسه»‌ی متناظر (از همان گروه‌بندیِ activeShelves) پر می‌شود
@@ -2233,17 +2261,7 @@ function renderItemDetail(item) {
 
   // >>> افزوده شد: سرستون‌های واضح، دقیقاً هم‌راستا با دو خطِ هر ردیف (خط اول: انبار/نام‌قفسه،
   // خط دوم: کدقفسه/موجودی‌فعلی/تعداد)
-  var countHeaderHtml =
-    '<div class="count-row-header">' +
-      '<div class="count-row-line1">' +
-        (warehouses.length ? '<span>نام انبار</span>' : '') +
-        (item.activeShelves && item.activeShelves.length ? '<span>نام قفسه</span>' : '') +
-      '</div>' +
-      '<div class="count-row-line2">' +
-        (item.activeShelves && item.activeShelves.length ? '<span class="hdr-code">کد قفسه</span><span class="hdr-cur">موجودی فعلی</span>' : '') +
-        '<span class="hdr-qty">تعداد/مقدار شمارش</span>' +
-      '</div>' +
-    '</div>';
+  var countHeaderHtml = ''; // برچسب‌ها اکنون روی خودِ باکس‌ها هستند
   // <<< پایان بخش افزوده‌شده
 
   var countCard =
@@ -2299,21 +2317,23 @@ function buildInitialCountRows_(item) {
 function buildCountRowHtml_(row, warehouses, activeShelves) {
   var whHtml = '';
   if (warehouses.length) {
-    whHtml = '<select class="count-row-wh">' + warehouses.map(function (w) {
+    whHtml = '<label class="cr-field cr-wh"><span class="cr-lbl">نام انبار</span><select class="count-row-wh">' + warehouses.map(function (w) {
       return '<option value="' + escapeHtml(w.warehouse) + '"' + (w.warehouse === row.warehouse ? ' selected' : '') + '>' + escapeHtml(w.warehouse) + '</option>';
-    }).join('') + '</select>';
+    }).join('') + '</select></label>';
   }
   var shelfCascadeHtml = '';
-  if (activeShelves.length) {
+  var hasShelves = activeShelves.length > 0;
+  if (hasShelves) {
     var codeSelectId = 'shelfCode_' + row.id;
     shelfCascadeHtml = buildCountRowShelfCascadeHtml_(codeSelectId, activeShelves, row.shelfCode);
   }
   var currentQtyText = (row.currentQty === '' || row.currentQty == null) ? '—' : escapeHtml(String(row.currentQty));
   return '<div class="count-row" data-row-id="' + escapeHtml(row.id) + '" data-original-shelf="' + escapeHtml(row.originalShelfCode || '') + '">' +
-    '<div class="count-row-line1">' + whHtml + shelfCascadeHtml + '</div>' +
+    '<div class="count-row-line1">' + whHtml + shelfCascadeHtml.split('|||')[0] + '</div>' +
     '<div class="count-row-line2">' +
-      '<span class="count-row-current-qty" title="موجودی فعلی">' + currentQtyText + '</span>' +
-      '<input type="number" class="count-row-qty" inputmode="decimal" placeholder="مقدار شمارش" value="' + (row.qty === '' || row.qty == null ? '' : escapeHtml(String(row.qty))) + '">' +
+      (hasShelves ? shelfCascadeHtml.split('|||')[1] : '') +
+      (hasShelves ? '<div class="cr-field cr-cur"><span class="cr-lbl">موجودی فعلی</span><span class="count-row-current-qty" title="موجودی فعلی">' + currentQtyText + '</span></div>' : '') +
+      '<label class="cr-field cr-qty"><span class="cr-lbl">مقدار شمارش</span><input type="number" class="count-row-qty" inputmode="decimal" placeholder="تعداد" value="' + (row.qty === '' || row.qty == null ? '' : escapeHtml(String(row.qty))) + '"></label>' +
       '<button type="button" class="count-row-del" onclick="removeCountRow(this)" title="حذف ردیف">' + ICON_TRASH_ + '</button>' +
     '</div>' +
   '</div>';
