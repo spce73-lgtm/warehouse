@@ -722,7 +722,55 @@ function applyIncomingQcFilter_() {
 // اگر دانلود کامل داده به هر دلیلی (قطعی موقت، تایم‌اوت و...) شکست می‌خورد، کاربر هیچ نشانه‌ای
 // نمی‌دید و تصور می‌کرد «داده‌ی آفلاین اصلاً ذخیره نمی‌شود» — این تابع حالا با موفقیت/شکست و
 // تعداد آیتم‌های واقعاً ذخیره‌شده resolve/reject می‌شود تا syncNow() بتواند وضعیت واقعی را نشان دهد.
+// >>> افزوده شد: همگام‌سازی هوشمند — دانلود کاملِ داده‌ی آفلاین (apiOfflineIndex، سنگین‌ترین درخواست سرور)
+// دیگر در «هر» بازگشت به برنامه/اتصال مجدد/ورود اجرا نمی‌شود؛ فقط وقتی لازم است:
+//  • همگام‌سازی دستی (همیشه کامل و تازه)، • اولین ورود/کاربر دیگر/تغییر سطح دسترسی،
+//  • کش خالی، • قدیمی‌تر از AUTO_FULL_SYNC_MAX_AGE_MS، • پس از ویرایش‌هایی که فیلدهای فهرست را تغییر می‌دهند
+//    (وزن/قفسه/کالای ورودی). ارسال صفِ عملیات آفلاین همچنان در هر همگام‌سازی انجام می‌شود (بدون تغییر).
+var LS_LAST_FULL_DL = 'wh_scanner_last_full_dl';
+var AUTO_FULL_SYNC_MAX_AGE_MS = 3 * 60 * 60 * 1000; // ۳ ساعت
+function fullDlStamp_() { return String(state.username || '') + '|' + (state.warehouseAccess ? '1' : '0') + '|'; }
+function markFullDownloadDone_() { try { localStorage.setItem(LS_LAST_FULL_DL, fullDlStamp_() + Date.now()); } catch (e) {} }
+function invalidateFullDownload_() { try { localStorage.removeItem(LS_LAST_FULL_DL); } catch (e) {} }
+function shouldDownloadFull_(manual) {
+  if (manual) return Promise.resolve(true);
+  var v = '';
+  try { v = localStorage.getItem(LS_LAST_FULL_DL) || ''; } catch (e) {}
+  var stamp = fullDlStamp_();
+  if (!v || v.indexOf(stamp) !== 0) return Promise.resolve(true);
+  var ts = Number(v.slice(stamp.length));
+  if (!ts || (Date.now() - ts) > AUTO_FULL_SYNC_MAX_AGE_MS || ts > Date.now() + 60000) return Promise.resolve(true);
+  return SyncDB.cacheGet('offline_items_index').then(function (rec) {
+    return !(rec && rec.value && rec.value.length);
+  }).catch(function () { return true; });
+}
+// پس از ثبت موفقِ شمارش، همان رکورد در کش محلی «شمارش‌شده» علامت می‌خورد (بدون دانلود مجدد)
+// تا «کالاهای باقیمانده» و آخرین شمارش بلافاصله درست بماند.
+var patchChain_ = Promise.resolve();
+function patchOfflineIndexCounted_(code, whenStr) {
+  // ترتیبی (زنجیره‌ای) تا چند به‌روزرسانیِ هم‌زمان همدیگر را بازنویسی نکنند
+  patchChain_ = patchChain_.then(function () { return patchOfflineIndexCountedNow_(code, whenStr); });
+  return patchChain_;
+}
+function patchOfflineIndexCountedNow_(code, whenStr) {
+  return SyncDB.cacheGet('offline_items_index').then(function (rec) {
+    if (!rec || !rec.value || !rec.value.length) return;
+    var changed = false, c = String(code);
+    rec.value.forEach(function (it) {
+      if (String(it.code) === c) { it.everCounted = true; if (whenStr) it.lastCountDate = whenStr; changed = true; }
+    });
+    if (changed) return SyncDB.cacheSet('offline_items_index', rec.value, 24 * 60 * 60 * 1000);
+  }).then(function () { try { refreshRemainingCountBadge_(); } catch (e) {} }).catch(function () { /* اختیاری */ });
+}
+var offlineRefreshInFlight_ = null;
+// <<< پایان بخش افزوده‌شده
+
 function refreshOfflineCache() {
+  if (offlineRefreshInFlight_) return offlineRefreshInFlight_; // هرگز دو دانلود کامل هم‌زمان
+  offlineRefreshInFlight_ = refreshOfflineCacheImpl_().then(function (r) { offlineRefreshInFlight_ = null; return r; }, function (e) { offlineRefreshInFlight_ = null; throw e; });
+  return offlineRefreshInFlight_;
+}
+function refreshOfflineCacheImpl_() {
   if (!state.token || !isOnline()) return Promise.resolve({ skipped: true });
   return apiCall('apiOfflineIndex', { token: state.token }).then(function (res) {
     if (!res || !res.success) throw new Error((res && res.message) || 'دریافت داده‌ی آفلاین ناموفق بود.');
@@ -760,6 +808,7 @@ function refreshOfflineCache() {
     return Promise.all(tasks).then(function () {
       if (res.serverTime) localStorage.setItem(LS_LAST_SYNC, res.serverTime);
       localStorage.setItem(LS_LAST_SYNC_OK, '1'); // >>> افزوده شد: آخرین تلاش موفق بود
+      markFullDownloadDone_();
       renderSyncBar();
       refreshRemainingCountBadge_(); // >>> افزوده شد: نشان «کالاهای باقیمانده» با هر بار به‌روزرسانی کش هماهنگ می‌ماند
       return { skipped: false, itemCount: (res.items || []).length, shelfCount: (res.shelves || []).length };
@@ -807,9 +856,12 @@ function syncNow(manual) {
   // می‌شود (دانلود کامل کالاها/قفسه‌ها)، سپس صفِ عملیات‌های آفلاین ارسال می‌شود؛ نتیجه‌ی هر دو
   // بخش در پیام نهایی (برای sync دستی) لحاظ می‌شود.
   var downloadOk = null, downloadCount = 0, downloadErr = null;
-  refreshOfflineCache().then(function (r) {
-    downloadOk = !r || r.skipped ? null : true;
-    downloadCount = (r && r.itemCount) || 0;
+  shouldDownloadFull_(manual).then(function (needFull) {
+    if (!needFull) return; // داده‌ی محلی تازه است؛ فقط صفِ عملیات ارسال می‌شود
+    return refreshOfflineCache().then(function (r) {
+      downloadOk = !r || r.skipped ? null : true;
+      downloadCount = (r && r.itemCount) || 0;
+    });
   }).catch(function (err) {
     downloadOk = false;
     downloadErr = err;
@@ -871,6 +923,11 @@ function syncNow(manual) {
         chain = chain.then(function () {
           if (r.success) {
             okCount++;
+            // >>> افزوده شد: شمارشِ ارسال‌شده در کش محلی علامت می‌خورد؛ سایر انواع (وزن/قفسه) کش را «کهنه» می‌کنند
+            var sentOp = batch.filter(function (b) { return b.clientOpId === r.clientOpId; })[0];
+            if (sentOp && sentOp.type === 'recordCount') patchOfflineIndexCounted_(sentOp.code, res.serverTime || '');
+            else invalidateFullDownload_();
+            // <<< پایان بخش افزوده‌شده
             // >>> افزوده شد: پاک‌کردن نشان «در انتظار همگام‌سازی» از ردیفِ متناظر در لیست اخیر
             var recentMatch = recentItems.filter(function (ri) { return ri.clientOpId === r.clientOpId; })[0];
             if (recentMatch) {
@@ -975,10 +1032,14 @@ var jsonpCounter = 0;
 // >>> افزوده شد: تلاش مجدد خودکار (فقط برای ورود و درخواست‌های «خواندنی»، تا ثبت تکراری پیش نیاید)
 // وقتی بارگذاری اسکریپت سرور موقتاً شکست می‌خورد (شروع سرد Apps Script، قطع کوتاه شبکه موبایل).
 var API_RETRY_SAFE_ = { apiLogin: 1, apiSearch: 1, apiLookup: 1, apiOfflineIndex: 1 };
+var API_INVALIDATES_LOCAL_ = { apiUpdateItemShelfQty: 1, apiUpdateItemWeightShelf: 1, apiLbCreateRecord: 1 };
 function apiCall(action, params, timeoutMs) {
   var tries = 0;
   function attempt() {
-    return apiCallOnce_(action, params, timeoutMs).catch(function (err) {
+    return apiCallOnce_(action, params, timeoutMs).then(function (res) {
+      if (API_INVALIDATES_LOCAL_[action] && res && res.success !== false) invalidateFullDownload_(); // >>> فهرست محلی در همگام‌سازی بعدی تازه می‌شود
+      return res;
+    }).catch(function (err) {
       if (API_RETRY_SAFE_[action] && tries < 2 && err && err.message === 'اتصال به سرور برقرار نشد.' && isOnline()) {
         tries++;
         return new Promise(function (r) { setTimeout(r, 700 * tries); }).then(attempt);
@@ -1096,6 +1157,7 @@ function doLogin() {
     }
     state.token = res.token; state.username = res.username; state.role = res.role; state.fullName = res.fullName;
     state.warehouseAccess = res.warehouseAccess === true;
+    invalidateFullDownload_(); // ورود تازه → دانلود کامل لازم است
     localStorage.setItem(LS_TOKEN, state.token);
     localStorage.setItem(LS_USER, state.username);
     localStorage.setItem(LS_ROLE, state.role);
@@ -1111,6 +1173,7 @@ function doLogin() {
 }
 
 function doLogout() {
+  invalidateFullDownload_();
   localStorage.removeItem(LS_TOKEN);
   localStorage.removeItem(LS_USER);
   localStorage.removeItem(LS_ROLE);
@@ -2700,6 +2763,7 @@ function saveCountStep_(itemForRecent, qty, note, warehouse, shelfCode) {
       var e2 = new Error(res.message || 'خطا در ثبت'); e2.stopChain = true; throw e2;
     }
     if (res.serverTime) localStorage.setItem(LS_LAST_SYNC, res.serverTime);
+    patchOfflineIndexCounted_(itemForRecent.code, res.serverTime || ''); // >>> افزوده شد: بدون دانلود مجدد
     addToRecent(itemForRecent, qty, res.diff);
     showToast('✓ ذخیره و تایید شد');
     document.getElementById('searchInput').value = '';
