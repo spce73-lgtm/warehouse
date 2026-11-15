@@ -1859,21 +1859,113 @@ function galleryOpenLb_(i) {
       gal_.items.map(function (it) { return '<div class="ig-lb-slide" onclick="if(event.target===this)galleryCloseLb_()"><img src="' + escapeHtml(galBig_(it.url)) + '" alt="" onerror="galImgErr_(this)"></div>'; }).join('') +
     '</div>' +
     (gal_.items.length > 1 ? '<button type="button" class="ig-nav ig-prev ig-lb-nav" onclick="galleryLbStep_(-1)">' + ICON_CHEV_L_ + '</button><button type="button" class="ig-nav ig-next ig-lb-nav" onclick="galleryLbStep_(1)">' + ICON_CHEV_R_ + '</button>' : '') +
+    '<div class="ig-lb-zoombar"><button type="button" class="ig-lb-zbtn" onclick="galZoomStep_(-1)" aria-label="کوچک‌نمایی">−</button><span class="ig-lb-zlbl" id="igLbZoomLbl" onclick="galZoomReset_()">' + galFa_(100) + '٪</span><button type="button" class="ig-lb-zbtn" onclick="galZoomStep_(1)" aria-label="بزرگ‌نمایی">+</button></div>' +
     '<div class="ig-lb-bottom" id="igLbBottom"></div>';
   document.body.appendChild(lb);
+  galZReset_(); galZSetup_();
   document.body.classList.add('ig-lb-on');
   var t = document.getElementById('igLbTrack'); t.scrollLeft = i * t.clientWidth;
   galleryLbMark_(i);
   try { history.pushState({ igLb: 1 }, ''); galLbPushed_ = true; } catch (e) { galLbPushed_ = false; }
   document.addEventListener('keydown', galleryLbKey_);
 }
+
+// ---- زوم در نمای بزرگ: دو انگشت (pinch)، دابل‌تپ، چرخ ماوس، دکمه‌های ＋/－ ؛ با بزرگ‌نمایی، کشیدن برای جابه‌جایی ----
+var galZ_ = { s: 1, tx: 0, ty: 0 };
+function galZImg_() {
+  var t = document.getElementById('igLbTrack'); if (!t) return null;
+  var sl = t.children[gal_.lbIdx || 0]; return sl ? sl.querySelector('img') : null;
+}
+function galZClamp_() {
+  var img = galZImg_(); if (!img) return;
+  var sl = img.parentNode, mx = Math.max(0, (img.clientWidth * galZ_.s - sl.clientWidth) / 2), my = Math.max(0, (img.clientHeight * galZ_.s - sl.clientHeight) / 2);
+  galZ_.tx = Math.max(-mx, Math.min(mx, galZ_.tx)); galZ_.ty = Math.max(-my, Math.min(my, galZ_.ty));
+}
+function galZApply_() {
+  var img = galZImg_(), t = document.getElementById('igLbTrack'); if (!img || !t) return;
+  if (galZ_.s <= 1.01) { galZ_.s = 1; galZ_.tx = 0; galZ_.ty = 0; }
+  galZClamp_();
+  img.style.transform = galZ_.s === 1 ? '' : 'translate(' + galZ_.tx + 'px,' + galZ_.ty + 'px) scale(' + galZ_.s + ')';
+  var zoomed = galZ_.s > 1;
+  t.classList.toggle('zoomed', zoomed);
+  var lbl = document.getElementById('igLbZoomLbl'); if (lbl) lbl.textContent = galFa_(Math.round(galZ_.s * 100)) + '٪';
+}
+function galZReset_() {
+  galZ_.s = 1; galZ_.tx = 0; galZ_.ty = 0;
+  var t = document.getElementById('igLbTrack');
+  if (t) Array.prototype.forEach.call(t.querySelectorAll('img'), function (im) { im.style.transform = ''; });
+  if (t) t.classList.remove('zoomed');
+  var lbl = document.getElementById('igLbZoomLbl'); if (lbl) lbl.textContent = galFa_(100) + '٪';
+}
+function galZoomBy_(factor, cx, cy) {
+  var img = galZImg_(); if (!img) return;
+  var sl = img.parentNode, r = sl.getBoundingClientRect(), old = galZ_.s, ns = Math.max(1, Math.min(6, old * factor));
+  if (cx === undefined) { cx = r.left + r.width / 2; cy = r.top + r.height / 2; }
+  var px = cx - (r.left + r.width / 2), py = cy - (r.top + r.height / 2); // نقطه نسبت به مرکز
+  galZ_.tx = px - (px - galZ_.tx) * (ns / old); galZ_.ty = py - (py - galZ_.ty) * (ns / old);
+  galZ_.s = ns; galZApply_();
+}
+function galZoomStep_(dir) { galZoomBy_(dir > 0 ? 1.4 : 1 / 1.4); }
+function galZoomReset_() { galZReset_(); }
+function galZSetup_() {
+  var t = document.getElementById('igLbTrack'); if (!t) return;
+  var pinch = null, pan = null, lastTap = 0, lastTapX = 0, lastTapY = 0, moved = false;
+  function dist(a, b) { var dx = a.clientX - b.clientX, dy = a.clientY - b.clientY; return Math.sqrt(dx * dx + dy * dy); }
+  t.addEventListener('touchstart', function (e) {
+    moved = false;
+    if (e.touches.length === 2) {
+      pinch = { d0: dist(e.touches[0], e.touches[1]), s0: galZ_.s, tx0: galZ_.tx, ty0: galZ_.ty,
+        mx: (e.touches[0].clientX + e.touches[1].clientX) / 2, my: (e.touches[0].clientY + e.touches[1].clientY) / 2 };
+      pan = null;
+    } else if (e.touches.length === 1) {
+      pan = { x: e.touches[0].clientX, y: e.touches[0].clientY, tx0: galZ_.tx, ty0: galZ_.ty };
+    }
+  }, { passive: true });
+  t.addEventListener('touchmove', function (e) {
+    if (pinch && e.touches.length === 2) {
+      e.preventDefault(); moved = true;
+      var img = galZImg_(); if (!img) return;
+      var r = img.parentNode.getBoundingClientRect(), ns = Math.max(1, Math.min(6, pinch.s0 * dist(e.touches[0], e.touches[1]) / pinch.d0));
+      var cx = (e.touches[0].clientX + e.touches[1].clientX) / 2, cy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      var px = pinch.mx - (r.left + r.width / 2), py = pinch.my - (r.top + r.height / 2);
+      galZ_.s = ns;
+      galZ_.tx = pinch.tx0 + (cx - pinch.mx) + (px - pinch.tx0) * (1 - ns / pinch.s0);
+      galZ_.ty = pinch.ty0 + (cy - pinch.my) + (py - pinch.ty0) * (1 - ns / pinch.s0);
+      galZApply_();
+    } else if (pan && e.touches.length === 1 && galZ_.s > 1) {
+      e.preventDefault(); moved = true;
+      galZ_.tx = pan.tx0 + (e.touches[0].clientX - pan.x); galZ_.ty = pan.ty0 + (e.touches[0].clientY - pan.y); galZApply_();
+    } else if (pan && Math.abs(e.touches[0].clientX - pan.x) > 8) { moved = true; }
+  }, { passive: false });
+  t.addEventListener('touchend', function (e) {
+    if (e.touches.length === 0) {
+      if (pinch) { pinch = null; if (galZ_.s < 1.05) galZReset_(); return; }
+      if (!moved && pan && e.changedTouches && e.changedTouches[0] && e.target && e.target.tagName === 'IMG') { // دابل‌تپ
+        var now = Date.now(), ct = e.changedTouches[0];
+        if (now - lastTap < 320 && Math.abs(ct.clientX - lastTapX) < 30 && Math.abs(ct.clientY - lastTapY) < 30) {
+          if (galZ_.s > 1) galZReset_(); else galZoomBy_(2.5, ct.clientX, ct.clientY);
+          lastTap = 0; t.__lastTouchZoom = Date.now();
+        } else { lastTap = now; lastTapX = ct.clientX; lastTapY = ct.clientY; }
+      }
+      pan = null;
+    }
+  }, { passive: true });
+  t.addEventListener('wheel', function (e) { e.preventDefault(); galZoomBy_(e.deltaY < 0 ? 1.2 : 1 / 1.2, e.clientX, e.clientY); }, { passive: false });
+  // ماوس (دسکتاپ): دابل‌کلیک = زوم؛ کشیدن در حالت زوم = جابه‌جایی
+  t.addEventListener('dblclick', function (e) { if (e.target.tagName !== 'IMG' || Date.now() - (t.__lastTouchZoom || 0) < 700) return; if (galZ_.s > 1) galZReset_(); else galZoomBy_(2.5, e.clientX, e.clientY); });
+  var md = null;
+  t.addEventListener('mousedown', function (e) { if (galZ_.s > 1 && e.target.tagName === 'IMG') { md = { x: e.clientX, y: e.clientY, tx0: galZ_.tx, ty0: galZ_.ty }; e.preventDefault(); } });
+  window.addEventListener('mousemove', function (e) { if (!md) return; galZ_.tx = md.tx0 + e.clientX - md.x; galZ_.ty = md.ty0 + e.clientY - md.y; galZApply_(); });
+  window.addEventListener('mouseup', function () { md = null; });
+}
+
 function galleryLbMark_(i) {
   var n = gal_.items.length; if (i < 0) i = 0; if (i >= n) i = n - 1; gal_.lbIdx = i;
   var c = document.getElementById('igLbCount'); if (c) c.textContent = galFa_(i + 1) + ' / ' + galFa_(n);
   var b = document.getElementById('igLbBottom');
   if (b) b.innerHTML = (gal_.canUpload && gal_.items[i] && gal_.items[i].deletable) ? '<button type="button" class="ig-lb-del" onclick="galleryDeleteCurrent_()">حذف این تصویر</button>' : '';
 }
-function galleryLbScroll_() { var t = document.getElementById('igLbTrack'); if (t && t.clientWidth) galleryLbMark_(Math.round(t.scrollLeft / t.clientWidth)); }
+function galleryLbScroll_() { var t = document.getElementById('igLbTrack'); if (!t || !t.clientWidth) return; var prev = gal_.lbIdx; galleryLbMark_(Math.round(t.scrollLeft / t.clientWidth)); if (prev !== gal_.lbIdx) galZReset_(); }
 function galleryLbStep_(d) { var t = document.getElementById('igLbTrack'); if (!t) return; t.scrollTo({ left: Math.max(0, Math.min(gal_.items.length - 1, Math.round(t.scrollLeft / t.clientWidth) + d)) * t.clientWidth, behavior: 'smooth' }); }
 function galleryLbKey_(ev) { if (ev.key === 'Escape') galleryCloseLb_(); }
 function galleryCloseLb_(fromPop) {
@@ -1881,6 +1973,7 @@ function galleryCloseLb_(fromPop) {
   galLbOpen_ = false;
   var lb = document.getElementById('igLb'); if (lb) lb.parentNode.removeChild(lb);
   document.body.classList.remove('ig-lb-on');
+  galZ_ = { s: 1, tx: 0, ty: 0 };
   document.removeEventListener('keydown', galleryLbKey_);
   var last = gal_.lbIdx || 0;
   if (galLbPushed_ && !fromPop) { galLbPushed_ = false; try { history.back(); } catch (e) {} }
@@ -1925,6 +2018,146 @@ function galCompress_(file, maxPx, q) {
     img.src = url;
   });
 }
+
+// ======================================================================
+// >>> افزوده شد: ویرایشگر تصویر قبل از ثبت (برش با دستگیره‌ها + نسبت‌های آماده، چرخش ۹۰ درجه، تنظیم زاویه‌ی جزئی)
+// ======================================================================
+function galCanvasToB64_(canvas, maxPx, q) {
+  var w = canvas.width, h = canvas.height, sc = Math.min(1, maxPx / Math.max(w, h));
+  var c = document.createElement('canvas'); c.width = Math.max(1, Math.round(w * sc)); c.height = Math.max(1, Math.round(h * sc));
+  var ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height); ctx.drawImage(canvas, 0, 0, c.width, c.height);
+  var qq = q / 100, out = c.toDataURL('image/jpeg', qq);
+  while (out.length > 1500000 && qq > 0.4) { qq -= 0.1; out = c.toDataURL('image/jpeg', qq); }
+  return out.split(',')[1];
+}
+function galEditImage_(file, idx, total) {
+  return new Promise(function (resolve, reject) {
+    var url = URL.createObjectURL(file), img = new Image();
+    img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('این فایل به‌عنوان تصویر خوانده نشد.')); };
+    img.onload = function () {
+      URL.revokeObjectURL(url);
+      try { galOpenEditor_(img, idx, total, resolve); } catch (e) { reject(e); }
+    };
+    img.src = url;
+  });
+}
+function galOpenEditor_(img, idx, total, done) {
+  var workMax = Math.min(2000, Math.max(gal_.maxPx || 1000, 1200));
+  var sc0 = Math.min(1, workMax / Math.max(img.naturalWidth, img.naturalHeight));
+  var wk = document.createElement('canvas'); wk.width = Math.max(1, Math.round(img.naturalWidth * sc0)); wk.height = Math.max(1, Math.round(img.naturalHeight * sc0));
+  wk.getContext('2d').drawImage(img, 0, 0, wk.width, wk.height);
+  var E = { rot: 0, fine: 0, ratio: 0, crop: { x: 0, y: 0, w: 1, h: 1 }, rc: null };
+  var ov = document.createElement('div'); ov.className = 'ie';
+  ov.innerHTML =
+    '<div class="ie-top"><button type="button" class="ie-x" id="ieX" aria-label="انصراف">' + ICON_X_ + '</button>' +
+      '<div class="ie-title">ویرایش تصویر' + (total > 1 ? ' (' + galFa_(idx) + ' از ' + galFa_(total) + ')' : '') + '</div></div>' +
+    '<div class="ie-stage" id="ieStage"><div class="ie-box" id="ieBox"><canvas id="ieCanvas"></canvas>' +
+      '<div class="ie-crop" id="ieCrop"><i class="ie-h nw" data-h="nw"></i><i class="ie-h ne" data-h="ne"></i><i class="ie-h sw" data-h="sw"></i><i class="ie-h se" data-h="se"></i></div></div></div>' +
+    '<div class="ie-ctrl">' +
+      '<div class="ie-row"><button type="button" class="ie-btn" id="ieRotL">↺ چرخش چپ</button><button type="button" class="ie-btn" id="ieRotR">↻ چرخش راست</button><button type="button" class="ie-btn ghost" id="ieReset">بازنشانی</button></div>' +
+      '<div class="ie-row ie-fine"><span>زاویه</span><input type="range" id="ieFine" min="-15" max="15" step="0.5" value="0"><b id="ieFineVal" dir="ltr">0°</b></div>' +
+      '<div class="ie-row ie-ratios"><span>برش</span><button type="button" class="ie-chip on" data-r="0">آزاد</button><button type="button" class="ie-chip" data-r="1">۱:۱</button><button type="button" class="ie-chip" data-r="1.3333">۴:۳</button><button type="button" class="ie-chip" data-r="0.75">۳:۴</button></div>' +
+      '<div class="ie-row ie-act"><button type="button" class="ie-btn ghost" id="ieCancel">انصراف</button><button type="button" class="ie-btn primary" id="ieOk">ثبت تصویر</button></div>' +
+    '</div>';
+  document.body.appendChild(ov); document.body.classList.add('ig-lb-on');
+  var canvas = ov.querySelector('#ieCanvas'), box = ov.querySelector('#ieBox'), cropEl = ov.querySelector('#ieCrop'), stage = ov.querySelector('#ieStage');
+  var disp = { w: 1, h: 1 };
+
+  function build() { // تصویر چرخانده‌شده (۹۰ درجه + زاویه‌ی جزئی) را می‌سازد
+    var r1 = document.createElement('canvas'), odd = E.rot % 2 === 1;
+    r1.width = odd ? wk.height : wk.width; r1.height = odd ? wk.width : wk.height;
+    var c1 = r1.getContext('2d'); c1.translate(r1.width / 2, r1.height / 2); c1.rotate(E.rot * Math.PI / 2); c1.drawImage(wk, -wk.width / 2, -wk.height / 2);
+    var th = E.fine * Math.PI / 180, cs = Math.abs(Math.cos(th)), sn = Math.abs(Math.sin(th));
+    var W = Math.round(r1.width * cs + r1.height * sn), H = Math.round(r1.width * sn + r1.height * cs);
+    var rc = document.createElement('canvas'); rc.width = W; rc.height = H;
+    var c2 = rc.getContext('2d'); c2.fillStyle = '#fff'; c2.fillRect(0, 0, W, H);
+    c2.translate(W / 2, H / 2); c2.rotate(th); c2.drawImage(r1, -r1.width / 2, -r1.height / 2);
+    E.rc = rc; E.rw = r1.width; E.rh = r1.height;
+  }
+  function inscribed() { // بزرگ‌ترین مستطیل هم‌نسبتِ تصویر که داخل تصویر چرخانده‌شده می‌ماند (بدون گوشه‌ی سفید)
+    var th = Math.abs(E.fine * Math.PI / 180), cs = Math.cos(th), sn = Math.sin(th), rw = E.rw, rh = E.rh;
+    var t = Math.min(rw / (rw * cs + rh * sn), rh / (rw * sn + rh * cs)); if (!(t > 0) || t > 1) t = 1;
+    var W = E.rc.width, H = E.rc.height, w = t * rw / W, h = t * rh / H;
+    return { x: (1 - w) / 2, y: (1 - h) / 2, w: w, h: h };
+  }
+  function fitRatio(r) { // بزرگ‌ترین مستطیل با نسبت r (عرض/ارتفاع به پیکسل) داخل ناحیه‌ی مجاز
+    var base = inscribed(), W = E.rc.width, H = E.rc.height, bw = base.w * W, bh = base.h * H, w, h;
+    if (bw / bh > r) { h = bh; w = bh * r; } else { w = bw; h = bw / r; }
+    return { x: (1 - w / W) / 2, y: (1 - h / H) / 2, w: w / W, h: h / H };
+  }
+  function layout() {
+    var maxW = Math.min(window.innerWidth - 16, 560), maxH = Math.max(160, stage.clientHeight - 8);
+    var ds = Math.min(maxW / E.rc.width, maxH / E.rc.height);
+    disp.w = Math.max(40, Math.round(E.rc.width * ds)); disp.h = Math.max(40, Math.round(E.rc.height * ds));
+    canvas.width = disp.w; canvas.height = disp.h; box.style.width = disp.w + 'px'; box.style.height = disp.h + 'px';
+    canvas.getContext('2d').drawImage(E.rc, 0, 0, disp.w, disp.h);
+    drawCrop();
+  }
+  function drawCrop() {
+    var c = E.crop; cropEl.style.left = (c.x * disp.w) + 'px'; cropEl.style.top = (c.y * disp.h) + 'px'; cropEl.style.width = (c.w * disp.w) + 'px'; cropEl.style.height = (c.h * disp.h) + 'px';
+  }
+  function refresh(resetCrop) { build(); if (resetCrop !== false) E.crop = E.ratio ? fitRatio(E.ratio) : inscribed(); layout(); }
+
+  // ---- کشیدن/تغییر اندازه‌ی کادر برش ----
+  var drag = null, MIN = 0.06;
+  cropEl.addEventListener('pointerdown', function (e) {
+    var h = e.target.getAttribute && e.target.getAttribute('data-h');
+    drag = { mode: h || 'move', sx: e.clientX, sy: e.clientY, c: { x: E.crop.x, y: E.crop.y, w: E.crop.w, h: E.crop.h } };
+    try { cropEl.setPointerCapture(e.pointerId); } catch (er) {}
+    e.preventDefault();
+  });
+  cropEl.addEventListener('pointermove', function (e) {
+    if (!drag) return;
+    var dx = (e.clientX - drag.sx) / disp.w, dy = (e.clientY - drag.sy) / disp.h, c = drag.c, n;
+    if (drag.mode === 'move') {
+      n = { x: Math.max(0, Math.min(1 - c.w, c.x + dx)), y: Math.max(0, Math.min(1 - c.h, c.y + dy)), w: c.w, h: c.h };
+    } else {
+      var fx = drag.mode.indexOf('w') !== -1 ? c.x + c.w : c.x;   // گوشه‌ی ثابت (مقابل)
+      var fy = drag.mode.indexOf('n') !== -1 ? c.y + c.h : c.y;
+      var px = Math.max(0, Math.min(1, (drag.mode.indexOf('w') !== -1 ? c.x : c.x + c.w) + dx));
+      var py = Math.max(0, Math.min(1, (drag.mode.indexOf('n') !== -1 ? c.y : c.y + c.h) + dy));
+      var w = Math.max(MIN, Math.abs(px - fx)), h = Math.max(MIN, Math.abs(py - fy));
+      var sx = px >= fx ? 1 : -1, sy = py >= fy ? 1 : -1;
+      if (E.ratio) { // قفل نسبت: ارتفاع از عرض
+        var rr = E.ratio * E.rc.height / E.rc.width; h = w / rr;
+        var maxH = sy > 0 ? 1 - fy : fy, maxW = sx > 0 ? 1 - fx : fx;
+        if (h > maxH) { h = maxH; w = h * rr; } if (w > maxW) { w = maxW; h = w / rr; }
+      }
+      n = { x: sx > 0 ? fx : fx - w, y: sy > 0 ? fy : fy - h, w: w, h: h };
+      n.x = Math.max(0, n.x); n.y = Math.max(0, n.y);
+    }
+    E.crop = n; drawCrop(); e.preventDefault();
+  });
+  function endDrag() { drag = null; }
+  cropEl.addEventListener('pointerup', endDrag); cropEl.addEventListener('pointercancel', endDrag);
+
+  // ---- کنترل‌ها ----
+  ov.querySelector('#ieRotL').onclick = function () { E.rot = (E.rot + 3) % 4; refresh(); };
+  ov.querySelector('#ieRotR').onclick = function () { E.rot = (E.rot + 1) % 4; refresh(); };
+  var fineEl = ov.querySelector('#ieFine'), fineVal = ov.querySelector('#ieFineVal');
+  fineEl.oninput = function () { E.fine = Number(fineEl.value) || 0; fineVal.textContent = (E.fine > 0 ? '+' : '') + E.fine + '°'; refresh(); };
+  function setRatioChips(r) { Array.prototype.forEach.call(ov.querySelectorAll('.ie-chip'), function (b) { b.classList.toggle('on', Number(b.getAttribute('data-r')) === r); }); }
+  Array.prototype.forEach.call(ov.querySelectorAll('.ie-chip'), function (b) {
+    b.onclick = function () { E.ratio = Number(b.getAttribute('data-r')) || 0; setRatioChips(E.ratio); E.crop = E.ratio ? fitRatio(E.ratio) : inscribed(); drawCrop(); };
+  });
+  ov.querySelector('#ieReset').onclick = function () { E.rot = 0; E.fine = 0; E.ratio = 0; fineEl.value = 0; fineVal.textContent = '0°'; setRatioChips(0); refresh(); };
+  function close(result) { window.removeEventListener('resize', onResize); if (ov.parentNode) ov.parentNode.removeChild(ov); if (!galLbOpen_) document.body.classList.remove('ig-lb-on'); done(result); }
+  ov.querySelector('#ieX').onclick = function () { close(null); };
+  ov.querySelector('#ieCancel').onclick = function () { close(null); };
+  ov.querySelector('#ieOk').onclick = function () {
+    var c = E.crop, W = E.rc.width, H = E.rc.height;
+    var out = document.createElement('canvas'); out.width = Math.max(1, Math.round(c.w * W)); out.height = Math.max(1, Math.round(c.h * H));
+    out.getContext('2d').drawImage(E.rc, Math.round(c.x * W), Math.round(c.y * H), out.width, out.height, 0, 0, out.width, out.height);
+    close(galCanvasToB64_(out, gal_.maxPx || 1000, gal_.quality || 70));
+  };
+  function onResize() { layout(); }
+  window.addEventListener('resize', onResize);
+  refresh();
+  // اگر ارتفاع stage هنوز آماده نبود (اولین رسم)، یک‌بار دیگر چیدمان
+  setTimeout(layout, 60);
+}
+// <<< پایان بخش ویرایشگر تصویر
+
 function galDelay_(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 function galPoll_(opId, i) {
   return apiCall('apiImageUploadStatus', { token: state.token, opId: opId }).then(function (r) {
@@ -1945,9 +2178,14 @@ function galleryFilesChosen_(input) {
   if (btn) btn.disabled = true;
   function next() {
     if (i >= files.length) return Promise.resolve();
-    var f = files[i++]; if (lbl) lbl.textContent = 'در حال ارسال ' + galFa_(i) + ' از ' + galFa_(files.length) + '...';
-    return galCompress_(f, gal_.maxPx, gal_.quality).then(function (b64) { return galUploadOne_(code, b64); })
-      .then(function () { ok++; }).catch(function (e) { showToast(e.message || 'خطا در ثبت تصویر', true); }).then(next);
+    var f = files[i++];
+    if (lbl) lbl.textContent = 'در حال ویرایش...';
+    return galEditImage_(f, i, files.length).catch(function () { return galCompress_(f, gal_.maxPx, gal_.quality); }) // اگر ویرایشگر باز نشد، مثل قبل مستقیم
+      .then(function (b64) {
+        if (!b64) return; // کاربر این تصویر را انصراف داد
+        if (lbl) lbl.textContent = 'در حال ارسال ' + galFa_(i) + ' از ' + galFa_(files.length) + '...';
+        return galUploadOne_(code, b64).then(function () { ok++; });
+      }).catch(function (e) { showToast(e.message || 'خطا در ثبت تصویر', true); }).then(next);
   }
   next().then(function () {
     if (btn) btn.disabled = false;
