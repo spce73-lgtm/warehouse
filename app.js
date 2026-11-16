@@ -60,6 +60,8 @@ if (window.visualViewport) {
 
 // ===================== حافظه‌ی محلی =====================
 var LS_SERVER = 'wh_scanner_server_url';
+// >>> افزوده شد: آدرس پیش‌فرض سامانه؛ کاربر فقط نام کاربری و رمز را می‌زند. اگر قبلاً آدرسی ذخیره شده باشد همان اولویت دارد.
+var DEFAULT_SERVER_URL = 'https://script.google.com/macros/s/AKfycbypZ_VKrsHl2facqbeY263LQeE812J-J2kcmjtooiFfCQZJQQp00JLlc0EoCWwG4IXm/exec';
 var LS_TOKEN = 'wh_scanner_token';
 var LS_USER = 'wh_scanner_username';
 var LS_ROLE = 'wh_scanner_role';
@@ -72,7 +74,7 @@ var LS_LAST_SYNC_OK = 'wh_scanner_last_sync_ok';
 // <<< پایان بخش افزوده‌شده
 
 var state = {
-  serverUrl: localStorage.getItem(LS_SERVER) || '',
+  serverUrl: localStorage.getItem(LS_SERVER) || DEFAULT_SERVER_URL,
   token: localStorage.getItem(LS_TOKEN) || '',
   username: localStorage.getItem(LS_USER) || '',
   role: localStorage.getItem(LS_ROLE) || '',
@@ -1060,7 +1062,7 @@ function apiCallOnce_(action, params, timeoutMs) {
         // پشتیبان بخوانیم — بدون هیچ تنظیم/کلید جدید، و بدون درخواست دوباره از کاربر.
     if (!state.serverUrl) {
       var storedServerUrl = localStorage.getItem(LS_SERVER);
-      if (storedServerUrl) state.serverUrl = storedServerUrl;
+      if (storedServerUrl) state.serverUrl = storedServerUrl; else if (DEFAULT_SERVER_URL) state.serverUrl = DEFAULT_SERVER_URL;
     }
     if (!state.serverUrl) { reject(new Error('آدرس سامانه تنظیم نشده.')); return; }
     // <<< پایان بخش اصلاح‌شده
@@ -1169,6 +1171,7 @@ function doLogin() {
     var hint = (err && err.message === 'اتصال به سرور برقرار نشد.')
       ? '<br><small>بررسی کنید: ۱) اینترنت گوشی ۲) «آدرس سامانه» دقیقاً آدرس آخرین Deploy (.../exec) باشد و فاصله‌ی اضافه نداشته باشد ۳) دسترسی Deploy روی «Anyone» باشد.</small>' : '';
     msgBox.innerHTML = '<div class="msg err">' + escapeHtml(err.message) + hint + '</div>';
+    if (err && err.message === 'اتصال به سرور برقرار نشد.') showServerField_(true); // اگر آدرس ذخیره‌شده اشتباه بود، کاربر بتواند اصلاح کند
   });
 }
 
@@ -3662,8 +3665,54 @@ function renderRecentList() {
 }
 
 // ===================== شروع برنامه =====================
+// >>> افزوده شد: کادر «آدرس سامانه» پیش‌فرض مخفی است؛ با ۵ بار لمس سریع روی لوگوی ورود (برای مدیر) نمایش داده می‌شود
+function showServerField_(show) {
+  var f = document.querySelector('.server-field'); if (f) f.style.display = show ? '' : 'none';
+}
+(function () {
+  showServerField_(false);
+  var logo = document.querySelector('.login-logo'), n = 0, t0 = 0;
+  if (logo) logo.addEventListener('click', function () {
+    var now = Date.now(); if (now - t0 > 3000) n = 0; t0 = now; n++;
+    if (n >= 5) { n = 0; var f = document.querySelector('.server-field'); showServerField_(!f || f.style.display === 'none'); }
+  });
+})();
+
+// >>> افزوده شد: ثبت سرویس‌ورکر + اعلان «نسخه‌ی جدید» بالای برنامه. بروزرسانی فقط با لمس کاربر انجام می‌شود
+// (نه خودکار)، و رفرش فقط یک‌بار (بدون حلقه) صورت می‌گیرد. صف آفلاین در IndexedDB است و پاک نمی‌شود.
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('./sw.js').catch(function () {});
+  (function () {
+    var userAsked = false, reloaded = false, bar = null;
+    function doReloadOnce() {
+      if (reloaded) return; reloaded = true;
+      try { sessionStorage.setItem('wh_upd_ts', String(Date.now())); } catch (e) {}
+      location.reload();
+    }
+    function showBar(reg) {
+      if (bar || !reg || !reg.waiting) return;
+      bar = document.createElement('div'); bar.className = 'upd-bar'; bar.setAttribute('role', 'status');
+      bar.innerHTML = '<span class="upd-txt">نسخه‌ی جدید برنامه آماده است</span><button type="button" class="upd-go">بروزرسانی</button><button type="button" class="upd-x" aria-label="بعداً">×</button>';
+      document.body.appendChild(bar);
+      bar.querySelector('.upd-x').onclick = function () { if (bar && bar.parentNode) bar.parentNode.removeChild(bar); bar = null; };
+      bar.querySelector('.upd-go').onclick = function () {
+        var b = bar.querySelector('.upd-go'); b.disabled = true; b.textContent = 'در حال بروزرسانی...';
+        userAsked = true;
+        try { reg.waiting.postMessage({ type: 'SKIP_WAITING' }); } catch (e) { doReloadOnce(); return; }
+        setTimeout(doReloadOnce, 4000); // اگر controllerchange نیامد، یک‌بار رفرش
+      };
+    }
+    navigator.serviceWorker.addEventListener('controllerchange', function () { if (userAsked) doReloadOnce(); });
+    navigator.serviceWorker.register('./sw.js').then(function (reg) {
+      if (reg.waiting && navigator.serviceWorker.controller) showBar(reg);
+      reg.addEventListener('updatefound', function () {
+        var nw = reg.installing; if (!nw) return;
+        nw.addEventListener('statechange', function () { if (nw.state === 'installed' && navigator.serviceWorker.controller) showBar(reg); });
+      });
+      function chk() { try { reg.update().catch(function () {}); } catch (e) {} }
+      setInterval(chk, 30 * 60 * 1000);
+      document.addEventListener('visibilitychange', function () { if (!document.hidden) chk(); });
+    }).catch(function () {});
+  })();
 }
 
 // >>> افزوده شد: نمایش خودکار وضعیت آنلاین/آفلاین + تلاش خودکار برای ارسال صف هنگام بازگشت اینترنت
