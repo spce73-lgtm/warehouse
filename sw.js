@@ -45,7 +45,7 @@
 // کنارِ دکمه‌ی همگام‌سازی. بدون این تغییر نام کش، PWAهای از قبل نصب‌شده همچنان
 // index.html/app.js/style.css نسخه‌ی v14 (بدون این اصلاحات) را از کش می‌بینند.
 // >>> v16: صفحه‌ی عمومی قفسه (?shelf=) — بدون تغییر نام کش، PWAهای نصب‌شده نسخه‌ی قبلی را می‌بینند.
-var CACHE_NAME = 'wh-scanner-shell-v23';
+var CACHE_NAME = 'wh-scanner-shell-v24';
 // <<< پایان بخش اصلاح‌شده
 var APP_SHELL = [
   './',
@@ -56,13 +56,18 @@ var APP_SHELL = [
   './icon-192.png'
 ];
 
+// >>> اصلاح شد (v24): دیگر skipWaiting خودکار نداریم؛ نسخه‌ی جدید «منتظر» می‌ماند تا کاربر روی اعلان
+// «بروزرسانی» بزند (پیام SKIP_WAITING). فایل‌ها هنگام نصب با cache:'reload' مستقیم از سرور گرفته می‌شوند
+// تا نسخه‌ی قدیمیِ کش HTTP مرورگر/گیت‌هاب در کش جدید ننشیند.
+self.addEventListener('message', function (event) {
+  if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
+});
 self.addEventListener('install', function (event) {
-  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then(function (cache) {
       // هر فایل جدا کش می‌شود؛ نبودِ یک فایل اختیاری (مثلاً آیکون) نباید کل نصب را خراب کند
       return Promise.all(APP_SHELL.map(function (url) {
-        return cache.add(url).catch(function () {});
+        return fetch(new Request(url, { cache: 'reload' })).then(function (res) { if (res && res.ok) return cache.put(url, res); }).catch(function () {});
       }));
     })
   );
