@@ -62,6 +62,16 @@ if (window.visualViewport) {
 var LS_SERVER = 'wh_scanner_server_url';
 // >>> افزوده شد: آدرس پیش‌فرض سامانه؛ کاربر فقط نام کاربری و رمز را می‌زند. اگر قبلاً آدرسی ذخیره شده باشد همان اولویت دارد.
 var DEFAULT_SERVER_URL = 'https://script.google.com/macros/s/AKfycbypZ_VKrsHl2facqbeY263LQeE812J-J2kcmjtooiFfCQZJQQp00JLlc0EoCWwG4IXm/exec';
+// >>> افزوده شد: آدرسِ ذخیره‌شده‌ی خراب (مثلاً آدرس گیت‌هاب‌پیجز یا بدون /exec که قبلاً اشتباه وارد شده) نباید ورود را قفل کند
+function validServerUrl_(u) {
+  u = String(u || '');
+  return u.indexOf('http') === 0 && u.indexOf('github.io') === -1 && u.indexOf('/exec') !== -1;
+}
+function pickServerUrl_() {
+  var st = ''; try { st = localStorage.getItem(LS_SERVER) || ''; } catch (e) {}
+  return validServerUrl_(st) ? st : DEFAULT_SERVER_URL;
+}
+var loginFallbackTried_ = false;
 var LS_TOKEN = 'wh_scanner_token';
 var LS_USER = 'wh_scanner_username';
 var LS_ROLE = 'wh_scanner_role';
@@ -74,7 +84,7 @@ var LS_LAST_SYNC_OK = 'wh_scanner_last_sync_ok';
 // <<< پایان بخش افزوده‌شده
 
 var state = {
-  serverUrl: localStorage.getItem(LS_SERVER) || DEFAULT_SERVER_URL,
+  serverUrl: pickServerUrl_(),
   token: localStorage.getItem(LS_TOKEN) || '',
   username: localStorage.getItem(LS_USER) || '',
   role: localStorage.getItem(LS_ROLE) || '',
@@ -1061,8 +1071,7 @@ function apiCallOnce_(action, params, timeoutMs) {
         // موجود (localStorage با همان کلید LS_SERVER که ورود استفاده می‌کند) به‌عنوان نسخه‌ی
         // پشتیبان بخوانیم — بدون هیچ تنظیم/کلید جدید، و بدون درخواست دوباره از کاربر.
     if (!state.serverUrl) {
-      var storedServerUrl = localStorage.getItem(LS_SERVER);
-      if (storedServerUrl) state.serverUrl = storedServerUrl; else if (DEFAULT_SERVER_URL) state.serverUrl = DEFAULT_SERVER_URL;
+      state.serverUrl = pickServerUrl_() || state.serverUrl;
     }
     if (!state.serverUrl) { reject(new Error('آدرس سامانه تنظیم نشده.')); return; }
     // <<< پایان بخش اصلاح‌شده
@@ -1125,21 +1134,25 @@ function doLogin() {
   var msgBox = document.getElementById('loginMsg');
   var btn = document.getElementById('loginBtn');
   msgBox.innerHTML = '';
+  var srvField = document.querySelector('.server-field');
+  if (!validServerUrl_(serverUrl) && DEFAULT_SERVER_URL && srvField && srvField.style.display === 'none') {
+    serverUrl = DEFAULT_SERVER_URL; document.getElementById('serverUrlInput').value = DEFAULT_SERVER_URL; // کادر مخفی است: آدرس خراب با پیش‌فرض جایگزین می‌شود
+  }
 
   if (!serverUrl) {
-    msgBox.innerHTML = '<div class="msg err">کادر «آدرس سامانه» خالی است. آدرس Apps Script (.../exec) را پیست کنید.</div>';
+    showServerField_(true); msgBox.innerHTML = '<div class="msg err">کادر «آدرس سامانه» خالی است. آدرس Apps Script (.../exec) را پیست کنید.</div>';
     return;
   }
   if (serverUrl.indexOf('http') !== 0) {
-    msgBox.innerHTML = '<div class="msg err">آدرس سامانه باید با https:// شروع شود.</div>';
+    showServerField_(true); msgBox.innerHTML = '<div class="msg err">آدرس سامانه باید با https:// شروع شود.</div>';
     return;
   }
   if (serverUrl.indexOf('github.io') !== -1) {
-    msgBox.innerHTML = '<div class="msg err">این آدرس گیت‌هاب‌پیجز است (همین اپ)، نه آدرس Apps Script.</div>';
+    showServerField_(true); msgBox.innerHTML = '<div class="msg err">این آدرس گیت‌هاب‌پیجز است (همین اپ)، نه آدرس Apps Script.</div>';
     return;
   }
   if (serverUrl.indexOf('/exec') === -1) {
-    msgBox.innerHTML = '<div class="msg err">آدرس واردشده باید به exec ختم شود.</div>';
+    showServerField_(true); msgBox.innerHTML = '<div class="msg err">آدرس واردشده باید به exec ختم شود.</div>';
     return;
   }
   if (!username || !password) {
@@ -1152,7 +1165,7 @@ function doLogin() {
 
   btn.disabled = true; btn.textContent = 'در حال ورود...';
   apiCall('apiLogin', { username: username, password: password }).then(function (res) {
-    btn.disabled = false; btn.textContent = 'ورود';
+    btn.disabled = false; btn.textContent = 'ورود'; loginFallbackTried_ = false;
     if (!res.success) {
       msgBox.innerHTML = '<div class="msg err">' + escapeHtml(res.message || 'ورود ناموفق بود.') + '</div>';
       return;
@@ -1170,6 +1183,13 @@ function doLogin() {
     btn.disabled = false; btn.textContent = 'ورود';
     var hint = (err && err.message === 'اتصال به سرور برقرار نشد.')
       ? '<br><small>بررسی کنید: ۱) اینترنت گوشی ۲) «آدرس سامانه» دقیقاً آدرس آخرین Deploy (.../exec) باشد و فاصله‌ی اضافه نداشته باشد ۳) دسترسی Deploy روی «Anyone» باشد.</small>' : '';
+    if (err && err.message === 'اتصال به سرور برقرار نشد.' && !loginFallbackTried_ && DEFAULT_SERVER_URL && serverUrl !== DEFAULT_SERVER_URL) {
+      // آدرس ذخیره‌شده کار نکرد → یک‌بار خودکار با آدرس پیش‌فرض امتحان می‌شود
+      loginFallbackTried_ = true;
+      document.getElementById('serverUrlInput').value = DEFAULT_SERVER_URL;
+      doLogin(); return;
+    }
+    loginFallbackTried_ = false;
     msgBox.innerHTML = '<div class="msg err">' + escapeHtml(err.message) + hint + '</div>';
     if (err && err.message === 'اتصال به سرور برقرار نشد.') showServerField_(true); // اگر آدرس ذخیره‌شده اشتباه بود، کاربر بتواند اصلاح کند
   });
