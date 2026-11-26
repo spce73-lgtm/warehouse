@@ -3698,6 +3698,43 @@ function showServerField_(show) {
   });
 })();
 
+// >>> افزوده شد: دکمه‌ی «نصب برنامه» در صفحه‌ی ورود (اندروید/کروم: نصب مستقیم؛ آیفون و بقیه: راهنمای کوتاه). در حالت نصب‌شده نمایش داده نمی‌شود.
+(function () {
+  var deferred = null, btn = null;
+  function isStandalone() {
+    try { return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true; } catch (e) { return false; }
+  }
+  function steps() {
+    var ua = navigator.userAgent || '';
+    if (/iphone|ipad|ipod/i.test(ua)) return ['در Safari این صفحه را باز کنید (نه داخل برنامه‌ی دیگر).', 'دکمه‌ی اشتراک‌گذاری (Share، مربع با فلش) را بزنید.', 'گزینه‌ی «Add to Home Screen / افزودن به صفحه‌ی اصلی» را انتخاب و تأیید کنید.'];
+    return ['در مرورگر Chrome، منوی سه‌نقطه (⋮) بالای صفحه را بزنید.', 'گزینه‌ی «Install app / نصب برنامه» (یا «Add to Home screen») را انتخاب کنید.', 'تأیید کنید؛ آیکون برنامه روی صفحه‌ی اصلی گوشی ساخته می‌شود.'];
+  }
+  function showHelp() {
+    var ov = document.createElement('div'); ov.className = 'inst-ov';
+    ov.innerHTML = '<div class="inst-box"><div class="inst-title">نصب برنامه روی گوشی</div><ol class="inst-steps">' +
+      steps().map(function (t) { return '<li>' + t + '</li>'; }).join('') + '</ol><button type="button" class="inst-close">متوجه شدم</button></div>';
+    ov.onclick = function (e) { if (e.target === ov || (e.target.className || '') === 'inst-close') ov.parentNode && ov.parentNode.removeChild(ov); };
+    document.body.appendChild(ov);
+  }
+  function ensureBtn() {
+    if (btn || isStandalone()) return;
+    var lb = document.getElementById('loginBtn'); if (!lb) return;
+    btn = document.createElement('button'); btn.type = 'button'; btn.className = 'install-btn'; btn.id = 'installBtn';
+    btn.textContent = '⬇ نصب برنامه روی گوشی';
+    btn.onclick = function () {
+      if (deferred) {
+        var d = deferred; deferred = null;
+        try { d.prompt(); if (d.userChoice) d.userChoice.then(function (c) { if (c && c.outcome === 'accepted') removeBtn(); }); } catch (e) { showHelp(); }
+      } else showHelp();
+    };
+    lb.insertAdjacentElement('afterend', btn);
+  }
+  function removeBtn() { if (btn && btn.parentNode) btn.parentNode.removeChild(btn); btn = null; }
+  window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); deferred = e; ensureBtn(); });
+  window.addEventListener('appinstalled', function () { deferred = null; removeBtn(); });
+  ensureBtn(); // اگر رویداد نصب نیامد (آیفون/مرورگرهای دیگر) دکمه با راهنما نمایش داده می‌شود
+})();
+
 // >>> افزوده شد: ثبت سرویس‌ورکر + اعلان «نسخه‌ی جدید» بالای برنامه. بروزرسانی فقط با لمس کاربر انجام می‌شود
 // (نه خودکار)، و رفرش فقط یک‌بار (بدون حلقه) صورت می‌گیرد. صف آفلاین در IndexedDB است و پاک نمی‌شود.
 if ('serviceWorker' in navigator) {
